@@ -5,6 +5,29 @@ let currentMode = 'mitarbeiter';
 let warenkorb = [];
 let isAdmin = false;
 
+// ==================== Initialization ====================
+
+async function initApp() {
+    // Prüfen ob Admin-Token noch gültig ist
+    const adminToken = localStorage.getItem('adminToken');
+    if (adminToken) {
+        try {
+            const response = await apiCall('/admin/verify');
+            if (response.valid) {
+                isAdmin = true;
+                currentMode = 'admin';
+            } else {
+                localStorage.removeItem('adminToken');
+            }
+        } catch (err) {
+            localStorage.removeItem('adminToken');
+        }
+    }
+
+    // Initial mode setzen
+    switchMode(currentMode);
+}
+
 // ==================== API Helper ====================
 
 async function apiCall(endpoint, options = {}) {
@@ -15,20 +38,26 @@ async function apiCall(endpoint, options = {}) {
         },
         ...options
     };
-    
+
+    // Admin-Token hinzufügen falls vorhanden
+    const adminToken = localStorage.getItem('adminToken');
+    if (adminToken) {
+        defaultOptions.headers.Authorization = `Bearer ${adminToken}`;
+    }
+
     try {
         const response = await fetch(url, defaultOptions);
-        
+
         if (!response.ok) {
             const error = await response.json();
             throw new Error(error.error || `HTTP ${response.status}`);
         }
-        
+
         // Bei 204 No Content kein JSON parsen
         if (response.status === 204) {
             return null;
         }
-        
+
         return await response.json();
     } catch (err) {
         console.error('API Error:', err);
@@ -60,19 +89,36 @@ function switchMode(mode) {
     }
 }
 
-function showAdminLogin() {
+async function showAdminLogin() {
     const password = prompt('Admin-Passwort eingeben:');
-    if (password === window.ADMIN_PASSWORD) {
-        isAdmin = true;
-        switchMode('admin');
-    } else {
-        alert('Falsches Passwort!');
+    if (!password) {
+        switchMode('mitarbeiter');
+        return;
+    }
+
+    try {
+        const response = await apiCall('/admin/auth', {
+            method: 'POST',
+            body: JSON.stringify({ password: password })
+        });
+
+        if (response.success) {
+            isAdmin = true;
+            localStorage.setItem('adminToken', response.token);
+            switchMode('admin');
+        } else {
+            alert('Falsches Passwort!');
+            switchMode('mitarbeiter');
+        }
+    } catch (err) {
+        alert('Authentifizierungsfehler: ' + err.message);
         switchMode('mitarbeiter');
     }
 }
 
 function logout() {
     isAdmin = false;
+    localStorage.removeItem('adminToken');
     switchMode('mitarbeiter');
 }
 
@@ -790,8 +836,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('reservierungBis')?.setAttribute('min', today);
     
     // Initiales Laden
-    switchMode('mitarbeiter');
-    
+    initApp();
     console.log('ToolHub API-Version geladen');
     console.log('API URL:', window.API_URL);
 });
