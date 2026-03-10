@@ -8,6 +8,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // PostgreSQL Connection Pool
+console.log('DB Config:', {
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  database: process.env.DB_NAME,
+  ssl: process.env.DB_SSL
+});
 const pool = new Pool({
   host: process.env.DB_HOST,
   port: process.env.DB_PORT || 5432,
@@ -17,7 +23,7 @@ const pool = new Pool({
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // Erhöht von 2000ms auf 10000ms
 });
 
 // Middleware

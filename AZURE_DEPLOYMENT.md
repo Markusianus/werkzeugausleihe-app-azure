@@ -26,13 +26,13 @@ Vollständige Anleitung zur Bereitstellung von ToolHub auf Azure mit PostgreSQL.
 3. **Grundlagen konfigurieren:**
    - **Abonnement:** Dein Azure-Abonnement
    - **Ressourcengruppe:** Neue erstellen (z.B. `rg-toolhub`)
-   - **Servername:** `toolhub-db` (muss global eindeutig sein)
+   - **Servername:** `db-toolhub` (muss global eindeutig sein)
    - **Region:** West Europe (oder deine Region)
    - **PostgreSQL-Version:** 15 (oder neuer)
    - **Compute + Speicher:** 
      - **Für Tests:** Burstable, B1ms (1 vCore, 2 GiB RAM)
      - **Für Produktion:** General Purpose, D2s_v3 (2 vCore, 8 GiB RAM)
-   - **Admin-Benutzername:** `toolhubadmin`
+   - **Admin-Benutzername:** `toolhub`
    - **Passwort:** Starkes Passwort (merken!)
 
 4. **Netzwerk konfigurieren:**
@@ -45,10 +45,10 @@ Vollständige Anleitung zur Bereitstellung von ToolHub auf Azure mit PostgreSQL.
 
 6. **Connection String notieren:**
    ```
-   Host: toolhub-db.postgres.database.azure.com
+   Host: db-toolhub.postgres.database.azure.com
    Port: 5432
-   Database: postgres (Standard, wir erstellen später "toolhub")
-   User: toolhubadmin
+   Database: postgres (Standard, wir erstellen später "db-toolhub")
+   User: toolhub
    Password: [dein-passwort]
    ```
 
@@ -64,9 +64,9 @@ az group create --name rg-toolhub --location westeurope
 # PostgreSQL Flexible Server erstellen
 az postgres flexible-server create \
   --resource-group rg-toolhub \
-  --name toolhub-db \
+  --name db-toolhub \
   --location westeurope \
-  --admin-user toolhubadmin \
+  --admin-user toolhub \
   --admin-password "DeinStarkesPasswort123!" \
   --sku-name Standard_B1ms \
   --tier Burstable \
@@ -77,13 +77,27 @@ az postgres flexible-server create \
 # Datenbank erstellen
 az postgres flexible-server db create \
   --resource-group rg-toolhub \
-  --server-name toolhub-db \
+  --server-name db-toolhub \
+  --database-name db-toolhub
+## 2️⃣ Datenbank initialisieren
+
+### WICHTIG: Datenbank muss vor der Initialisierung erstellt werden!
+
+**Bevor du `npm run init-db` ausführst, musst du die Datenbank in Azure erstellen.** Das `init-db.js` Script verbindet sich mit der angegebenen Datenbank, erstellt aber nicht die Datenbank selbst.
+
+#### Datenbank über Azure CLI erstellen:
+```bash
+az postgres flexible-server db create \
+  --resource-group rg-toolhub \
+  --server-name db-toolhub \
   --database-name toolhub
 ```
 
----
-
-## 2️⃣ Datenbank initialisieren
+#### Oder über Azure Portal:
+1. Portal → PostgreSQL Flexible Server → Dein Server (`db-toolhub`)
+2. **Datenbanken** → **+ Datenbank hinzufügen**
+3. **Datenbankname:** `toolhub`
+4. **Erstellen**
 
 ### Lokal mit init-db.js
 
@@ -104,10 +118,10 @@ az postgres flexible-server db create \
 
 4. **`.env` ausfüllen:**
    ```env
-   DB_HOST=toolhub-db.postgres.database.azure.com
+   DB_HOST=db-toolhub.postgres.database.azure.com
    DB_PORT=5432
-   DB_NAME=toolhub
-   DB_USER=toolhubadmin
+   DB_NAME=db-toolhub
+   DB_USER=toolhub
    DB_PASSWORD=DeinStarkesPasswort123!
    DB_SSL=true
    PORT=3000
@@ -123,10 +137,11 @@ az postgres flexible-server db create \
    Du solltest sehen:
    ```
    🚀 Initialisiere Datenbank...
-   ✅ Tabelle "requests" erstellt
-   ✅ Tabelle "options" erstellt
-   ✅ Tabelle "bookings" erstellt
+   ✅ Tabelle "werkzeuge" erstellt
+   ✅ Tabelle "ausleihen" erstellt
+   ✅ Tabelle "schaeden" erstellt
    ✅ Indexes erstellt
+   📦 Demo-Daten eingefügt
    🎉 Datenbank erfolgreich initialisiert!
    ```
 
@@ -165,10 +180,10 @@ az postgres flexible-server db create \
    
    Füge alle Variablen aus `.env` hinzu:
    ```
-   DB_HOST = toolhub-db.postgres.database.azure.com
+   DB_HOST = db-toolhub.postgres.database.azure.com
    DB_PORT = 5432
-   DB_NAME = toolhub
-   DB_USER = toolhubadmin
+   DB_NAME = db-toolhub
+   DB_USER = toolhub
    DB_PASSWORD = DeinStarkesPasswort123!
    DB_SSL = true
    NODE_ENV = production
@@ -183,20 +198,47 @@ az postgres flexible-server db create \
    git add .
    git commit -m "Initial commit"
 
-   # Azure Remote hinzufügen (URL aus Portal kopieren)
-   git remote add azure https://toolhub-backend.scm.azurewebsites.net:443/toolhub-backend.git
+   # Azure Remote hinzufügen (Git URL aus Portal kopieren)
+   # WICHTIG: Verwende die GIT URL, nicht die FTPS URL!
+   # Portal → Web App → Deployment Center → Local Git → Git Clone Uri
+   # Beispiel: https://your-app-name.scm.azurewebsites.net:443/your-app-name.git
 
-   # Deployen
+   git remote add azure https://toolhub-backend-b2apccbyf0gmcqap.scm.germanywestcentral-01.azurewebsites.net:443/toolhub-backend.git
+
+   # Hinweis: Es gibt zwei Deployment-Optionen:
+   # 1. Git Deployment (diese Anleitung) - verwendet Git Push
+   # 2. FTPS Deployment - verwendet FTP Upload (andere URL)
+
+   # Credentials setzen (einmalig erforderlich)
+   # Portal → Web App → Deployment Center → Local Git
+   # Klick auf "Generate Credentials" falls noch nicht vorhanden
+   # Verwende: Username + Password aus dem Portal
+
    git push azure master
    ```
+
+   **Wichtig:** Beim ersten `git push` wirst du nach Username und Password gefragt:
+   - **Username:** Aus dem Azure Portal (Deployment Center → Local Git)
+   - **Password:** Das generierte Deployment-Password (nicht dein Azure-Passwort!)
+
+   **Credentials finden:**
+   1. Azure Portal → Deine Web App → **Deployment Center**
+   2. **Quelle:** Local Git
+   3. **Lokale Git/FTPS-Anmeldeinformationen** → **Benutzerbereich**
+   4. Hier findest du Username und kannst ein Password generieren
 
 5. **Logs prüfen:**
    - Portal → Web App → **Log Stream**
 
 6. **Testen:**
    ```bash
-   curl https://toolhub-backend.azurewebsites.net/api/health
+   # Verwende die vollständige URL deiner Web App (inkl. Region)
+   curl https://[deine-app-name].[region].azurewebsites.net/api/health
+   # Beispiel: curl https://toolhub-backend-b2apccbyf0gmcqap.germanywestcentral-01.azurewebsites.net/api/health
    ```
+
+   **URL finden:**
+   - Azure Portal → Web App → Übersicht → **URL** (vollständige URL mit Region)
 
 ### Option B: Azure CLI Deployment
 
@@ -214,10 +256,10 @@ az webapp config appsettings set \
   --resource-group rg-toolhub \
   --name toolhub-backend \
   --settings \
-    DB_HOST=toolhub-db.postgres.database.azure.com \
+    DB_HOST=db-toolhub.postgres.database.azure.com \
     DB_PORT=5432 \
     DB_NAME=toolhub \
-    DB_USER=toolhubadmin \
+    DB_USER=toolhub \
     DB_PASSWORD="DeinStarkesPasswort123!" \
     DB_SSL=true \
     NODE_ENV=production \
@@ -400,14 +442,14 @@ az webapp log tail \
    ```bash
    az postgres flexible-server firewall-rule list \
      --resource-group rg-toolhub \
-     --name toolhub-db
+     --name db-toolhub
    ```
 
 2. **Azure Services erlauben:**
    ```bash
    az postgres flexible-server firewall-rule create \
      --resource-group rg-toolhub \
-     --name toolhub-db \
+     --name db-toolhub \
      --rule-name AllowAzure \
      --start-ip-address 0.0.0.0 \
      --end-ip-address 0.0.0.0

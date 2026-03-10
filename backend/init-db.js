@@ -1,16 +1,45 @@
 require('dotenv').config();
 const { Pool } = require('pg');
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
-});
-
 async function initDatabase() {
+  // First, connect to the default 'postgres' database to create our database
+  const adminPool = new Pool({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT || 5432,
+    database: 'postgres', // Connect to default postgres database
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
+  });
+
+  try {
+    console.log('🚀 Erstelle Datenbank falls sie nicht existiert...');
+    
+    // Create database if it doesn't exist
+    await adminPool.query(`CREATE DATABASE "${process.env.DB_NAME}"`);
+    console.log(`✅ Datenbank "${process.env.DB_NAME}" erstellt oder existiert bereits`);
+    
+  } catch (err) {
+    if (err.code === '42P04') {
+      console.log(`ℹ️ Datenbank "${process.env.DB_NAME}" existiert bereits`);
+    } else {
+      console.error('❌ Fehler beim Erstellen der Datenbank:', err);
+      throw err;
+    }
+  } finally {
+    await adminPool.end();
+  }
+
+  // Now connect to our target database
+  const pool = new Pool({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false
+  });
+
   const client = await pool.connect();
   
   try {
