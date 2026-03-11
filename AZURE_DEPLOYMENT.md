@@ -280,70 +280,75 @@ az webapp deployment source config-zip \
 
 ### Frontend für API vorbereiten
 
-Das Frontend muss angepasst werden, um die API zu nutzen statt sql.js.
+Das Frontend liest nur die URL der Backend‑API zur Laufzeit (z.B. `API_URL`). Sensible Werte wie Admin‑Passwörter oder Datenbank‑Zugangsdaten müssen ausschließlich in der Backend‑Web‑App als Anwendungseinstellungen gesetzt werden.
 
-1. **Neue Frontend-Version** liegt in `/frontend/index.html`
-   - Alle sql.js Aufrufe wurden durch `fetch()`-API-Calls ersetzt
-   - API-URL wird aus `window.API_URL` gelesen
+- Frontend: Setze in der Frontend‑Web‑App nur die öffentliche API‑URL.
+   - Azure Portal → Deine Frontend Web App → **Konfiguration** → **Anwendungseinstellungen**
+   - Beispiel:
+      ```
+      Name: API_URL
+      Wert: https://toolhub-backend-b2apccbyf0gmcqap.germanywestcentral-01.azurewebsites.net/api
+      ```
 
-2. **Konfigurationsdatei erstellen:**
+- Backend: Setze alle sensiblen Variablen (DB_*, ADMIN_PASSWORD, etc.) in der Backend‑Web‑App (siehe Abschnitt 3).
 
-   ```bash
-   cd frontend/
-   ```
+**Sicherheitshinweis:** Speichere Passwörter niemals im Frontend‑Code oder in statischen Dateien. Das Frontend darf nur nicht‑sensible Konfiguration (z.B. API Endpoints) erhalten; die Verifikation von Admin‑Rechten MUSS serverseitig erfolgen (z.B. `/api/admin/auth`).
 
-   Erstelle `config.js`:
-   ```javascript
-   // API Konfiguration
-   window.API_URL = 'https://toolhub-backend.azurewebsites.net/api';
-   ```
+### Frontend auf Azure Web App deployen
 
-3. **index.html aktualisieren** (erste Zeilen):
-   ```html
-   <head>
-       <meta charset="UTF-8">
-       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-       <title>ToolHub</title>
-       <script src="config.js"></script>
-       <!-- sql.js wurde entfernt! -->
-       ...
-   </head>
-   ```
+Wir verwenden für Frontend und Backend die gleichen Deploy‑Methoden, damit die Entwicklerführung einheitlich ist.
 
-### Frontend auf Azure Static Web Apps deployen
+Option A — Portal (Lokales Git / Deployment Center)
 
-#### Option A: Azure Static Web Apps (empfohlen für reine Frontend-Apps)
+1. Azure Portal → **App Services** → **+ Erstellen**.
+2. Wähle Subscription, Resource Group `rg-toolhub`, Name `toolhub-frontend`, Runtime **Node 18 LTS**, OS **Linux**, Region **West Europe**, Plan (z.B. F1 für Test).
+3. Nach Erstellen: Öffne **Deployment Center** → **Local Git** (oder Deployment Option deiner Wahl).
+4. Kopiere die angezeigte Git‑URL (z. B. https://<app>.scm.azurewebsites.net/<app>.git).
+5. Lokales Deployment (im `frontend/` Ordner):
+    ```bash
+    cd frontend/
+    git init
+    git add .
+    git commit -m "Deploy frontend"
+    git remote add azure <GIT_URL_AUS_PORTAL>
+    git push azure master
+    ```
 
+Hinweis: Alternativ kannst du im Deployment Center auch ZIP/FTPS Upload wählen und die `frontend` Dateien als ZIP hochladen.
+
+Option B — CLI (ZIP Deploy)
+
+1. Erstelle die Web App via CLI (falls noch nicht vorhanden):
+    ```bash
+    az webapp up \
+       --resource-group rg-toolhub \
+       --name toolhub-frontend \
+       --runtime "NODE:18-lts" \
+       --sku F1 \
+       --location westeurope
+    ```
+2. Packe die `frontend` Dateien und deploye per ZIP:
+    ```bash
+    cd frontend/
+    zip -r ../frontend.zip .
+    az webapp deployment source config-zip \
+       --resource-group rg-toolhub \
+       --name toolhub-frontend \
+       --src ../frontend.zip
+    ```
+
+Nach Deploy: Setze `API_URL` in der Frontend App Settings (Portal → Konfiguration) oder per CLI:
 ```bash
-# Static Web App erstellen
-az staticwebapp create \
-  --name toolhub-frontend \
-  --resource-group rg-toolhub \
-  --location westeurope
-
-# GitHub Actions Deployment (oder manuell via Azure Portal)
-# Siehe: https://docs.microsoft.com/azure/static-web-apps/
+az webapp config appsettings set \
+   --resource-group rg-toolhub \
+   --name toolhub-frontend \
+   --settings API_URL=https://toolhub-backend-b2apccbyf0gmcqap.germanywestcentral-01.azurewebsites.net/api
 ```
 
-#### Option B: Separate Azure Web App (einfacher für diesen Guide)
+Manuelles Redeploy / Troubleshooting
+- Portal: App Service → **Deployment Center** → Logs / Redeploy
+- CLI: Re-run ZIP deploy und prüfe `az webapp log tail` für Logs
 
-```bash
-# Web App für Frontend
-az webapp up \
-  --resource-group rg-toolhub \
-  --name toolhub-frontend \
-  --runtime "NODE:18-lts" \
-  --sku F1 \
-  --location westeurope
-
-# Frontend-Dateien hochladen
-cd frontend/
-zip -r frontend.zip .
-az webapp deployment source config-zip \
-  --resource-group rg-toolhub \
-  --name toolhub-frontend \
-  --src frontend.zip
-```
 
 ---
 

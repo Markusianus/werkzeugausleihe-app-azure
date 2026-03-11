@@ -31,7 +31,6 @@ async function initApp() {
 // ==================== API Helper ====================
 
 async function apiCall(endpoint, options = {}) {
-    const url = `${window.API_URL}${endpoint}`;
     const defaultOptions = {
         headers: {
             'Content-Type': 'application/json',
@@ -46,7 +45,7 @@ async function apiCall(endpoint, options = {}) {
     }
 
     try {
-        const response = await fetch(url, defaultOptions);
+        const response = await fetch(buildApiUrl(endpoint), defaultOptions);
 
         if (!response.ok) {
             const error = await response.json();
@@ -63,6 +62,21 @@ async function apiCall(endpoint, options = {}) {
         console.error('API Error:', err);
         throw err;
     }
+}
+
+function buildApiUrl(endpoint) {
+    // Use window.API_URL when available, otherwise fallback to current origin
+    const base = (window.API_URL && (window.API_URL + '').replace(/\/$/, '')) || window.location.origin;
+    const rawBase = base.replace(/\/$/, '');
+
+    // If endpoint already starts with /api, append directly
+    if (endpoint.startsWith('/api')) return rawBase + endpoint;
+
+    // If rawBase already contains /api at end, just join
+    if (rawBase.endsWith('/api')) return rawBase + endpoint;
+
+    // Otherwise insert /api
+    return rawBase + '/api' + endpoint;
 }
 
 // ==================== Mode Switching ====================
@@ -348,26 +362,34 @@ async function loadDashboard() {
     try {
         const stats = await apiCall('/stats');
         
-        document.getElementById('statVerfuegbar').textContent = stats.werkzeuge.verfuegbar || 0;
-        document.getElementById('statReserviert').textContent = stats.werkzeuge.reserviert || 0;
-        document.getElementById('statAusgeliehen').textContent = stats.werkzeuge.ausgeliehen || 0;
-        document.getElementById('statDefekt').textContent = stats.werkzeuge.defekt || 0;
-        document.getElementById('statGesamt').textContent = stats.werkzeuge.gesamt || 0;
-        
-        document.getElementById('statAusleihenReserviert').textContent = stats.ausleihen.reserviert || 0;
-        document.getElementById('statAusleihenAusgeliehen').textContent = stats.ausleihen.ausgeliehen || 0;
-        document.getElementById('statAusleihenUeberfaellig').textContent = stats.ausleihen.ueberfaellig || 0;
-        
-        document.getElementById('statSchaeden').textContent = stats.schaeden.offen || 0;
-        
-        // Top 5 Werkzeuge
+        // Safely set dashboard stats only if elements exist
+        const setStat = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = (value !== undefined && value !== null) ? value : 0;
+        };
+
+        setStat('statVerfuegbar', stats.werkzeuge?.verfuegbar);
+        setStat('statReserviert', stats.werkzeuge?.reserviert);
+        setStat('statAusgeliehen', stats.werkzeuge?.ausgeliehen);
+        setStat('statDefekt', stats.werkzeuge?.defekt);
+        setStat('statGesamt', stats.werkzeuge?.gesamt);
+
+        setStat('statAusleihenReserviert', stats.ausleihen?.reserviert);
+        setStat('statAusleihenAusgeliehen', stats.ausleihen?.ausgeliehen);
+        setStat('statAusleihenUeberfaellig', stats.ausleihen?.ueberfaellig);
+
+        setStat('statSchaeden', stats.schaeden?.offen);
+
+        // Top 5 Werkzeuge (if container exists)
         const topList = document.getElementById('topWerkzeugeList');
-        topList.innerHTML = '';
-        stats.top_werkzeuge.forEach((w, i) => {
-            const li = document.createElement('li');
-            li.innerHTML = `<span>${i + 1}. ${w.icon || '🔧'} ${w.name}</span> <span class="badge">${w.anzahl_ausleihen}x</span>`;
-            topList.appendChild(li);
-        });
+        if (topList) {
+            topList.innerHTML = '';
+            (stats.top_werkzeuge || []).forEach((w, i) => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span>${i + 1}. ${w.icon || '🔧'} ${w.name}</span> <span class="badge">${w.anzahl_ausleihen}x</span>`;
+                topList.appendChild(li);
+            });
+        }
         
         // Daten laden
         loadAdminWerkzeuge();
@@ -577,6 +599,52 @@ function getAusleiheStatusBadge(status) {
     return badges[status] || status;
 }
 
+// Make sure frontend exposes functions matching backend endpoints for clarity
+// These wrapper helpers are used by UI buttons and ensure consistent API usage.
+async function ausgebenAusleihe(id) {
+    if (!confirm('Ausleihe ausgeben?')) return;
+    try {
+        await apiCall(`/ausleihen/${id}/ausgeben`, { method: 'PATCH' });
+        showToast('✓ Ausleihe ausgegeben!');
+        loadAusleihen();
+        loadDashboard();
+    } catch (err) {
+        alert('Fehler: ' + (err.message || err));
+    }
+}
+
+async function submitRueckgabe(event) {
+    event.preventDefault();
+    const id = document.getElementById('rueckgabeId').value;
+    const zustand = document.getElementById('rueckgabeZustand').value;
+    const kommentar = document.getElementById('rueckgabeKommentar').value;
+    try {
+        await apiCall(`/ausleihen/${id}/rueckgabe`, {
+            method: 'PATCH',
+            body: JSON.stringify({ rueckgabe_zustand: zustand, rueckgabe_kommentar: kommentar })
+        });
+        showToast('✓ Rückgabe dokumentiert!');
+        closeModal('rueckgabeModal');
+        loadAusleihen();
+        loadDashboard();
+    } catch (err) {
+        alert('Fehler: ' + (err.message || err));
+    }
+}
+
+async function behebenSchaden(id) {
+    if (!confirm('Schaden als behoben markieren?')) return;
+    try {
+        await apiCall(`/schaeden/${id}/beheben`, { method: 'PATCH' });
+        showToast('✓ Schaden behoben!');
+        loadSchaeden();
+        loadDashboard();
+        loadAdminWerkzeuge();
+    } catch (err) {
+        alert('Fehler: ' + (err.message || err));
+    }
+}
+
 async function ausgebenAusleihe(id) {
     if (!confirm('Ausleihe ausgeben?')) return;
     
@@ -715,7 +783,7 @@ async function deleteSchaden(id) {
 
 async function exportCSV() {
     try {
-        const response = await fetch(`${window.API_URL}/export/werkzeuge`);
+        const response = await fetch(buildApiUrl('/export/werkzeuge'));
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');

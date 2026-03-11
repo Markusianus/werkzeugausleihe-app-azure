@@ -1,14 +1,12 @@
-// ToolHub API Configuration - Runtime Environment Variables
-// Diese werden über Azure App Settings gesetzt
+// Frontend runtime config.
+// In production this file can be generated during deploy to inject the
+// Azure App Setting value for API_URL, e.g. in CI or ZIP deploy:
+//   echo "window.API_URL = 'https://.../api';" > frontend/config.js
+// For local development keep the localhost fallback below.
 
-// API URL aus Environment Variable oder Fallback
-window.API_URL = window.API_URL || 'http://localhost:3000/api';
+// If Azure generated runtime config exists it will override this value.
+// This fallback is helpful for local development.
+window.API_URL = window.API_URL || (typeof process !== 'undefined' && process.env && process.env.API_URL) || 'http://localhost:3000/api';
 
-// Admin Password aus Environment Variable oder Fallback
-window.ADMIN_PASSWORD = window.ADMIN_PASSWORD || 'admin123';
-
-// Debug Info
-console.log('ToolHub Config:', {
-  API_URL: window.API_URL,
-  hasAdminPassword: !!window.ADMIN_PASSWORD
-});
+// Expose a small helper for debugging in browser
+if (typeof window !== 'undefined') console.log('frontend config loaded. API_URL=', window.API_URL);

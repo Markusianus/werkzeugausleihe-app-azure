@@ -43,6 +43,46 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+// Admin Authentifizierung
+app.post('/api/admin/auth', (req, res) => {
+  const { password } = req.body;
+  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+
+  if (password === adminPassword) {
+    // Einfache Token-basierte Auth (für Demo - in Produktion JWT verwenden)
+    const token = Buffer.from(`admin:${Date.now()}`).toString('base64');
+    res.json({
+      success: true,
+      token: token,
+      message: 'Admin-Modus aktiviert'
+    });
+  } else {
+    res.status(401).json({
+      success: false,
+      message: 'Falsches Passwort'
+    });
+  }
+});
+
+// Admin Token verifizieren
+app.get('/api/admin/verify', (req, res) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    return res.status(401).json({ valid: false });
+  }
+
+  try {
+    // Einfache Token-Verifizierung (für Demo)
+    //TODO: In Produktion sollte hier eine robustere Methode verwendet werden (z.B. JWT mit Secret)
+    const decoded = Buffer.from(token, 'base64').toString();
+    const isValid = decoded.startsWith('admin:');
+
+    res.json({ valid: isValid });
+  } catch (err) {
+    res.status(401).json({ valid: false });
+  }
+});
+
 // ==================== WERKZEUGE ====================
 
 // Alle Werkzeuge abrufen

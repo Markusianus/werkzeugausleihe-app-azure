@@ -1,0 +1,11 @@
+# Ignore local env files and generated config
+.env
+
+# Node / build artifacts (if any)
+node_modules/
+dist/
+build/
+
+# Editor temp files
+.vscode/
+.DS_Store
