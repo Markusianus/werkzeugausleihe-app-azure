@@ -1,0 +1,111 @@
+{
+  "documentVersion": "1.0.0",
+  "project": {
+    "name": "werkzeugausleihe-app-azure",
+    "type": "fullstack-webapp",
+    "domain": "tool-lending",
+    "language": "JavaScript"
+  },
+  "architecture": {
+    "backend": {
+      "path": "backend",
+      "runtime": "node",
+      "framework": "express",
+      "entryPoint": "backend/server.js",
+      "db": "postgresql",
+      "initScript": "backend/init-db.js"
+    },
+    "frontend": {
+      "path": "frontend",
+      "runtime": "node",
+      "serving": "static+express",
+      "entryPoint": "frontend/server.js",
+      "mainUi": "frontend/index.html",
+      "clientLogic": "frontend/main.js",
+      "apiConfig": "frontend/config.js"
+    }
+  },
+  "runtimeRequirements": {
+    "backendNode": ">=18.x",
+    "frontendNode": "24.x",
+    "database": "PostgreSQL"
+  },
+  "commands": {
+    "backend": {
+      "install": "npm install",
+      "initDb": "npm run init-db",
+      "start": "npm start",
+      "dev": "npm run dev"
+    },
+    "frontend": {
+      "install": "npm install",
+      "start": "npm start",
+      "build": "npm run build"
+    }
+  },
+  "apiSurface": {
+    "health": [
+      "GET /api/health",
+      "GET /api/stats"
+    ],
+    "werkzeuge": [
+      "GET /api/werkzeuge",
+      "GET /api/werkzeuge/:id",
+      "POST /api/werkzeuge",
+      "PUT /api/werkzeuge/:id",
+      "DELETE /api/werkzeuge/:id"
+    ],
+    "ausleihen": [
+      "GET /api/ausleihen",
+      "GET /api/ausleihen/:id",
+      "POST /api/ausleihen",
+      "PATCH /api/ausleihen/:id/ausgeben",
+      "PATCH /api/ausleihen/:id/rueckgabe",
+      "DELETE /api/ausleihen/:id"
+    ],
+    "schaeden": [
+      "GET /api/schaeden",
+      "POST /api/schaeden",
+      "PATCH /api/schaeden/:id/beheben",
+      "DELETE /api/schaeden/:id"
+    ],
+    "export": [
+      "GET /api/export/werkzeuge"
+    ]
+  },
+  "criticalFiles": [
+    "README.md",
+    "QUICKSTART.md",
+    "AZURE_DEPLOYMENT.md",
+    "backend/server.js",
+    "backend/init-db.js",
+    "backend/package.json",
+    "frontend/config.js",
+    "frontend/main.js",
+    "frontend/package.json"
+  ],
+  "operationalRules": [
+    "Never commit secrets or credentials.",
+    "Validate /api/health before and after changes.",
+    "Prefer minimal, reversible changes.",
+    "Avoid destructive DB changes without migration/backup plan.",
+    "Check logs first when incidents occur."
+  ],
+  "firstRunChecklist": [
+    "Read README.md, QUICKSTART.md, AZURE_DEPLOYMENT.md.",
+    "Inspect backend/server.js and backend/init-db.js.",
+    "Verify frontend/config.js API base URL.",
+    "Run backend and validate GET /api/health.",
+    "Only then apply code changes."
+  ],
+  "doneCriteria": [
+    "Change implemented.",
+    "Relevant paths tested locally.",
+    "No obvious runtime errors.",
+    "Documentation updated if behavior changed."
+  ],
+  "metadata": {
+    "generatedAt": "2026-03-11",
+    "maintainerHint": "Update this file when endpoints, startup commands, or runtime requirements change."
+  }
+}

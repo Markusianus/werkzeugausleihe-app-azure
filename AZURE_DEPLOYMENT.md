@@ -1,6 +1,4 @@
-# 🚀 ToolHub Azure Deployment Guide
-
-Vollständige Anleitung zur Bereitstellung von ToolHub auf Azure mit PostgreSQL.
+# 🚀 ToolHub Azure Deployment (März 2026)
 
 ---
 
@@ -13,7 +11,7 @@ Vollständige Anleitung zur Bereitstellung von ToolHub auf Azure mit PostgreSQL.
 
 ---
 
-## 1️⃣ Azure PostgreSQL Datenbank erstellen
+## 1️⃣ PostgreSQL-Flexible-Server + Datenbank
 
 ### Option A: Azure Portal (GUI)
 
@@ -43,11 +41,11 @@ Vollständige Anleitung zur Bereitstellung von ToolHub auf Azure mit PostgreSQL.
 
 5. **Überprüfen + Erstellen** → Warten (ca. 5-10 Minuten)
 
-6. **Connection String notieren:**
+6. **Verbindungsdaten notieren:** (Host, Port 5432, Standard-DB „postgres“, User, Passwort)
    ```
    Host: db-toolhub.postgres.database.azure.com
    Port: 5432
-   Database: postgres (Standard, wir erstellen später "db-toolhub")
+   Database: postgres (Standard, eigene App-DB danach anlegen)
    User: toolhub
    Password: [dein-passwort]
    ```
@@ -61,7 +59,7 @@ az login
 # Ressourcengruppe erstellen
 az group create --name rg-toolhub --location westeurope
 
-# PostgreSQL Flexible Server erstellen
+# PostgreSQL Flexible Server
 az postgres flexible-server create \
   --resource-group rg-toolhub \
   --name db-toolhub \
@@ -74,32 +72,14 @@ az postgres flexible-server create \
   --storage-size 32 \
   --public-access 0.0.0.0
 
-# Datenbank erstellen
+# App-Datenbank
 az postgres flexible-server db create \
   --resource-group rg-toolhub \
   --server-name db-toolhub \
-  --database-name db-toolhub
+   --database-name toolhub
 ## 2️⃣ Datenbank initialisieren
 
-### WICHTIG: Datenbank muss vor der Initialisierung erstellt werden!
-
-**Bevor du `npm run init-db` ausführst, musst du die Datenbank in Azure erstellen.** Das `init-db.js` Script verbindet sich mit der angegebenen Datenbank, erstellt aber nicht die Datenbank selbst.
-
-#### Datenbank über Azure CLI erstellen:
-```bash
-az postgres flexible-server db create \
-  --resource-group rg-toolhub \
-  --server-name db-toolhub \
-  --database-name toolhub
-```
-
-#### Oder über Azure Portal:
-1. Portal → PostgreSQL Flexible Server → Dein Server (`db-toolhub`)
-2. **Datenbanken** → **+ Datenbank hinzufügen**
-3. **Datenbankname:** `toolhub`
-4. **Erstellen**
-
-### Lokal mit init-db.js
+### Lokal `init-db.js`
 
 1. **Backend-Verzeichnis wechseln:**
    ```bash
@@ -116,11 +96,11 @@ az postgres flexible-server db create \
    cp .env.example .env
    ```
 
-4. **`.env` ausfüllen:**
+4. **`.env` ausfüllen (Beispiel):**
    ```env
    DB_HOST=db-toolhub.postgres.database.azure.com
    DB_PORT=5432
-   DB_NAME=db-toolhub
+   DB_NAME=toolhub
    DB_USER=toolhub
    DB_PASSWORD=DeinStarkesPasswort123!
    DB_SSL=true
@@ -145,7 +125,7 @@ az postgres flexible-server db create \
    🎉 Datenbank erfolgreich initialisiert!
    ```
 
-6. **Backend lokal testen:**
+6. **Backend testen:**
    ```bash
    npm start
    ```
@@ -154,7 +134,7 @@ az postgres flexible-server db create \
 
 ---
 
-## 3️⃣ Backend auf Azure Web App deployen
+## 3️⃣ Backend auf App Service
 
 ### Option A: Azure Portal + Git Deployment
 
@@ -163,7 +143,7 @@ az postgres flexible-server db create \
    - **Ressourcengruppe:** `rg-toolhub`
    - **Name:** `toolhub-backend` (muss global eindeutig sein)
    - **Veröffentlichen:** Code
-   - **Runtime-Stack:** Node 18 LTS
+   - **Runtime-Stack:** Node 18 LTS (oder kompatibel zu deinem Backend)
    - **Betriebssystem:** Linux
    - **Region:** West Europe
    - **App Service-Plan:** 
@@ -175,14 +155,14 @@ az postgres flexible-server db create \
    - **Deployment Center** → **Quelle:** Lokales Git
    - Git-Befehle werden angezeigt
 
-3. **Umgebungsvariablen setzen:**
+3. **App Settings:** alle `DB_*`, `DB_SSL=true`, `NODE_ENV`, `FRONTEND_URL`
    - **Konfiguration** → **Anwendungseinstellungen** → "+ Neue Anwendungseinstellung"
    
-   Füge alle Variablen aus `.env` hinzu:
+   Füge alle benötigten Variablen hinzu:
    ```
    DB_HOST = db-toolhub.postgres.database.azure.com
    DB_PORT = 5432
-   DB_NAME = db-toolhub
+   DB_NAME = toolhub
    DB_USER = toolhub
    DB_PASSWORD = DeinStarkesPasswort123!
    DB_SSL = true
@@ -190,7 +170,7 @@ az postgres flexible-server db create \
    FRONTEND_URL = https://toolhub-frontend.azurewebsites.net
    ```
 
-4. **Git-Deployment:**
+4. **Deployment:**
    ```bash
    # Git initialisieren (falls noch nicht)
    cd backend/
@@ -227,10 +207,10 @@ az postgres flexible-server db create \
    3. **Lokale Git/FTPS-Anmeldeinformationen** → **Benutzerbereich**
    4. Hier findest du Username und kannst ein Password generieren
 
-5. **Logs prüfen:**
+5. **Logs & URL:** Portal → Log Stream / URL
    - Portal → Web App → **Log Stream**
 
-6. **Testen:**
+6. **Testen:** `curl https://<backend>.azurewebsites.net/api/health`
    ```bash
    # Verwende die vollständige URL deiner Web App (inkl. Region)
    curl https://[deine-app-name].[region].azurewebsites.net/api/health
@@ -240,10 +220,10 @@ az postgres flexible-server db create \
    **URL finden:**
    - Azure Portal → Web App → Übersicht → **URL** (vollständige URL mit Region)
 
-### Option B: Azure CLI Deployment
+### Option B: CLI/ZIP Deploy
 
 ```bash
-# Web App erstellen
+# Web App
 az webapp up \
   --resource-group rg-toolhub \
   --name toolhub-backend \
@@ -251,7 +231,7 @@ az webapp up \
   --sku B1 \
   --location westeurope
 
-# Umgebungsvariablen setzen
+# App Settings
 az webapp config appsettings set \
   --resource-group rg-toolhub \
   --name toolhub-backend \
@@ -260,7 +240,7 @@ az webapp config appsettings set \
     DB_PORT=5432 \
     DB_NAME=toolhub \
     DB_USER=toolhub \
-    DB_PASSWORD="DeinStarkesPasswort123!" \
+   DB_PASSWORD="DeinStarkesPasswort123!" \
     DB_SSL=true \
     NODE_ENV=production \
     FRONTEND_URL=https://toolhub-frontend.azurewebsites.net
@@ -276,9 +256,9 @@ az webapp deployment source config-zip \
 
 ---
 
-## 4️⃣ Frontend anpassen & deployen
+## 4️⃣ Frontend-App-Service
 
-### Frontend für API vorbereiten
+### API-URL konfigurieren
 
 Das Frontend liest nur die URL der Backend‑API zur Laufzeit (z.B. `API_URL`). Sensible Werte wie Admin‑Passwörter oder Datenbank‑Zugangsdaten müssen ausschließlich in der Backend‑Web‑App als Anwendungseinstellungen gesetzt werden.
 
@@ -294,7 +274,7 @@ Das Frontend liest nur die URL der Backend‑API zur Laufzeit (z.B. `API_URL`). 
 
 **Sicherheitshinweis:** Speichere Passwörter niemals im Frontend‑Code oder in statischen Dateien. Das Frontend darf nur nicht‑sensible Konfiguration (z.B. API Endpoints) erhalten; die Verifikation von Admin‑Rechten MUSS serverseitig erfolgen (z.B. `/api/admin/auth`).
 
-### Frontend auf Azure Web App deployen
+### Deployment
 
 Wir verwenden für Frontend und Backend die gleichen Deploy‑Methoden, damit die Entwicklerführung einheitlich ist.
 
@@ -302,7 +282,7 @@ Option A — Portal (Lokales Git / Deployment Center)
 
 1. Azure Portal → **App Services** → **+ Erstellen**.
 2. Wähle Subscription, Resource Group `rg-toolhub`, Name `toolhub-frontend`, Runtime **Node 18 LTS**, OS **Linux**, Region **West Europe**, Plan (z.B. F1 für Test).
-3. Nach Erstellen: Öffne **Deployment Center** → **Local Git** (oder Deployment Option deiner Wahl).
+3. Nach Erstellen: Öffne **Deployment Center** → **Local Git** (oder ZIP Deploy).
 4. Kopiere die angezeigte Git‑URL (z. B. https://<app>.scm.azurewebsites.net/<app>.git).
 5. Lokales Deployment (im `frontend/` Ordner):
     ```bash
@@ -316,7 +296,7 @@ Option A — Portal (Lokales Git / Deployment Center)
 
 Hinweis: Alternativ kannst du im Deployment Center auch ZIP/FTPS Upload wählen und die `frontend` Dateien als ZIP hochladen.
 
-Option B — CLI (ZIP Deploy)
+Option B — CLI
 
 1. Erstelle die Web App via CLI (falls noch nicht vorhanden):
     ```bash
@@ -337,7 +317,7 @@ Option B — CLI (ZIP Deploy)
        --src ../frontend.zip
     ```
 
-Nach Deploy: Setze `API_URL` in der Frontend App Settings (Portal → Konfiguration) oder per CLI:
+Nach Deploy: Setze `API_URL` in den Frontend App Settings (Portal → Konfiguration) oder per CLI:
 ```bash
 az webapp config appsettings set \
    --resource-group rg-toolhub \
@@ -345,18 +325,18 @@ az webapp config appsettings set \
    --settings API_URL=https://toolhub-backend-b2apccbyf0gmcqap.germanywestcentral-01.azurewebsites.net/api
 ```
 
-Manuelles Redeploy / Troubleshooting
+Redeploy / Troubleshooting
 - Portal: App Service → **Deployment Center** → Logs / Redeploy
 - CLI: Re-run ZIP deploy und prüfe `az webapp log tail` für Logs
 
 
 ---
 
-## 5️⃣ CORS konfigurieren
+## 5️⃣ CORS
 
-Falls CORS-Fehler auftreten:
+Falls CORS-Fehler auftreten, prüfe zuerst die im Backend erlaubten Origins und danach App-Service-CORS.
 
-### Backend: CORS in server.js
+Backend (`server.js`): erlaubte Origins setzen; Azure-Portal → CORS spiegeln.
 
 Zeile 25 in `server.js`:
 ```javascript
@@ -365,59 +345,22 @@ app.use(cors({
 }));
 ```
 
-### Azure Portal
-
-1. Web App → **CORS**
-2. **Zulässige Ursprünge:** `https://toolhub-frontend.azurewebsites.net`
-3. Speichern
-
----
-
-## 6️⃣ Testen & Monitoring
-
-### Health Check
+## 6️⃣ Tests & Monitoring
 
 ```bash
-curl https://toolhub-backend.azurewebsites.net/api/health
-# Erwartete Antwort: {"status":"ok","timestamp":"..."}
+curl https://<backend>.azurewebsites.net/api/health
+az webapp log tail --resource-group rg-toolhub --name toolhub-backend
 ```
-
-### Frontend öffnen
-
-```bash
-https://toolhub-frontend.azurewebsites.net
-```
-
-### Logs überwachen
-
-```bash
-# Backend Logs
-az webapp log tail \
-  --resource-group rg-toolhub \
-  --name toolhub-backend
-```
-
-### Application Insights (optional, aber empfohlen)
-
-1. Portal → Web App → **Application Insights** → Aktivieren
-2. Automatisches Monitoring von:
-   - API-Performance
-   - Fehlerrate
-   - Datenbankabfragen
+Optional: Application Insights aktivieren.
 
 ---
 
 ## 7️⃣ Kosten-Übersicht (ungefähr)
 
-### Free Tier (Testing)
-- PostgreSQL Flexible Server B1ms: ~10 EUR/Monat
-- Web App F1 (Free): 0 EUR
-- **Gesamt: ~10 EUR/Monat**
-
-### Production Setup (kleine Firma)
-- PostgreSQL Flexible Server D2s_v3: ~80 EUR/Monat
-- Web App B1 (Basic): ~12 EUR/Monat
-- **Gesamt: ~92 EUR/Monat**
+| Tier          | DB (Monat) | Web App | Summe |
+|---------------|-----------:|--------:|------:|
+| Test (B1ms+F1)| ~10 €      | ~0 €    | ~10 € |
+| Prod (D2s+B1) | ~80 €      | ~12 €   | ~92 € |
 
 ### Optimierungstipps
 
@@ -427,15 +370,11 @@ az webapp log tail \
 
 ---
 
-## 🔒 Sicherheits-Checkliste
-
-- [ ] Starke Passwörter für DB-Admin
-- [ ] Firewall-Regeln auf notwendige IPs beschränken
-- [ ] SSL/TLS für DB-Verbindungen aktiviert (`DB_SSL=true`)
-- [ ] HTTPS für Web Apps (automatisch von Azure)
-- [ ] `.env` Dateien nicht in Git committen
-- [ ] Application Insights für Anomalie-Erkennung
-- [ ] Regelmäßige DB-Backups (Azure macht automatisch 7 Tage)
+## 🔒 Sicherheit
+- Starke DB-Passwörter + Firewall-Regeln
+- `DB_SSL=true`, HTTPS erzwingen
+- Secrets nur als App Settings, `.env` nicht commiten
+- Logs/Insights aktiv überwachen, Backups im Blick behalten
 
 ---
 
@@ -468,16 +407,15 @@ az webapp log tail \
    ```
 
 2. **Node-Version prüfen:**
-   - Portal → **Konfiguration** → **Allgemeine Einstellungen** → Node-Version = 18
+   - Portal → **Konfiguration** → **Allgemeine Einstellungen** → passende Node-Version (Backend mindestens 18)
 
 3. **Start-Befehl prüfen:**
    - Portal → **Konfiguration** → **Allgemeine Einstellungen**
    - Startbefehl: `npm start`
 
-### CORS-Fehler
-
-- **Backend:** `cors` Middleware richtig konfiguriert?
-- **Azure:** CORS-Einstellungen im Portal setzen
+### CORS oder Logs
+- Origins im Backend + Portal angleichen
+- `az webapp log tail` schlägt fehl → `az login` + RG/App-Namen prüfen, sonst Portal-Logstream
 
 ---
 
@@ -489,20 +427,6 @@ az webapp log tail \
 
 ---
 
-## 🎉 Fertig!
-
-Du hast jetzt:
-- ✅ PostgreSQL Datenbank auf Azure
-- ✅ Backend API deployed
-- ✅ Frontend deployed
-- ✅ Alles miteinander verbunden
-
-**Nächste Schritte:**
-1. Custom Domain konfigurieren (optional)
-2. CI/CD mit GitHub Actions einrichten
-3. Production-Monitoring aktivieren
-
----
-
-**Entwickelt von:** Chris @ Februar 2026  
-**Support:** Bei Fragen → Morpheus fragen! 💊
+## 🎉 Fertig & Agent-Hinweis
+- Weiteres Vorgehen: Custom Domains, CI/CD, Monitoring
+- Autonome Agenten lesen `AGENTS.md` + `agent-onboarding.json`, prüfen Healthchecks vor Deploys

@@ -1,98 +1,43 @@
-# ⚡ ToolHub - Quick Start
+# ⚡ ToolHub – Quick Start
 
-## 5-Minuten Test
-
-### 1. Backend starten
-
+## Lokaler 5-Minuten-Run
 ```bash
-cd backend/
-npm install
-cp .env.example .env
-# .env bearbeiten (siehe unten)
-npm run init-db
-npm start
+# Backend
+cd backend && npm install && cp .env.example .env
+npm run init-db && npm start  # Healthcheck: http://localhost:3000/api/health
+
+# Frontend
+cd frontend && npm install && npm start
 ```
+Admin-Demo: Button „Admin“ → Passwort `admin123`.
 
-### 2. Frontend öffnen
-
-```bash
-cd ../frontend/
-python3 -m http.server 8080
-```
-
-→ Öffne: http://localhost:8080
-
-### 3. Testen
-
-**Mitarbeiter-Modus:**
-1. Werkzeug in Warenkorb
-2. Name + Zeitraum eingeben
-3. Reservieren
-
-**Admin-Modus:**
-1. Klick "Admin"
-2. Passwort: `admin123`
-3. Dashboard sehen
-4. Reservierung ausgeben
-
----
-
-## .env Konfiguration
-
+## .env (Backend)
 ```env
-DB_HOST=localhost  # Oder Azure: your-server.postgres.database.azure.com
+DB_HOST=localhost  # Azure: <server>.postgres.database.azure.com
 DB_PORT=5432
 DB_NAME=toolhub
 DB_USER=postgres
 DB_PASSWORD=your-password
-DB_SSL=false  # true für Azure
+DB_SSL=false      # Azure meist true
 PORT=3000
 NODE_ENV=development
 FRONTEND_URL=http://localhost:8080
 ```
 
----
+## Azure in Kürze
+1. PostgreSQL (Azure Flexible Server) + DB anlegen
+2. Backend-App-Service deployen, `DB_*` + `FRONTEND_URL` setzen
+3. Frontend-App-Service deployen, `API_URL` setzen
+4. Healthcheck + CORS testen
+→ Details: `AZURE_DEPLOYMENT.md`
 
-## Azure Deployment
-
-Siehe **[AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)** für Details!
-
-**Kurzversion:**
-1. PostgreSQL auf Azure erstellen
-2. Backend deployen (Git Push)
-3. Frontend deployen (Static Web App)
-4. Fertig! 🎉
-
----
-
-## Demo-Daten
-
-Nach `npm run init-db` sind 8 Demo-Werkzeuge vorhanden:
-- Bohrmaschine
-- Hammer
-- Stichsäge
-- Schraubenzieher-Set
-- Zollstock
-- Akkuschrauber
-- Wasserwaage
-- Schutzbrille
-
----
+## Agenten-Hinweis
+Erst `AGENTS.md`, danach optional `agent-onboarding.json` für Automatisierung lesen.
 
 ## Troubleshooting
+- Backend startet nicht → DB erreichbar? `.env` korrekt?
+- Frontend lädt nicht → `config.js`/`API_URL` prüfen, CORS checken
+- Keine Daten → Browser-Konsole + API-Antworten prüfen
 
-### Backend startet nicht
-- PostgreSQL läuft? (`pg_isready`)
-- `.env` richtig konfiguriert?
-
-### Frontend lädt nicht
-- `config.js`: `API_URL` korrekt?
-- CORS-Fehler? → Backend `server.js` Zeile 23 prüfen
-
-### Keine Daten sichtbar
-- Browser Console öffnen (F12)
-- API-Fehler checken
-
----
-
-**Viel Erfolg! 🚀**
+## Demo-Daten
+`npm run init-db` legt Beispiel-Werkzeuge (Bohrmaschine, Hammer, …) an.

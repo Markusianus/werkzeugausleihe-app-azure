@@ -33,6 +33,12 @@ app.use(cors({
 app.use(bodyParser.json({ limit: '50mb' })); // Für Base64 Fotos
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
+// Request logging (Helps debugging 404s in Azure)
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 // Health Check
 app.get('/api/health', async (req, res) => {
   try {
@@ -612,6 +618,14 @@ app.listen(PORT, () => {
   console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
   console.log(`📊 Health Check: http://localhost:${PORT}/api/health`);
 });
+
+// Fallback: wenn eine /api/*-Route nicht gefunden wurde, gib JSON zurück (statt HTML)
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'API route not found', path: req.originalUrl });
+});
+
+// Root quick-check
+app.get('/', (req, res) => res.send('ToolHub Backend (running)'));
 
 // Graceful Shutdown
 process.on('SIGTERM', async () => {
