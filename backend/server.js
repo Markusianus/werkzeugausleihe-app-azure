@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const crypto = require('crypto');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 const { Pool } = require('pg');
@@ -16,6 +17,29 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+const IS_PRODUCTION = NODE_ENV === 'production';
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'admin123');
+const ADMIN_TOKEN_SECRET = String(process.env.ADMIN_TOKEN_SECRET || ADMIN_PASSWORD || 'toolhub-dev-admin-secret');
+const ADMIN_TOKEN_TTL_HOURS = Math.max(1, Number.parseInt(process.env.ADMIN_TOKEN_TTL_HOURS || '12', 10) || 12);
+const REQUEST_BODY_LIMIT = String(process.env.REQUEST_BODY_LIMIT || '2mb');
+const TRUST_PROXY = String(process.env.TRUST_PROXY || '1').trim().toLowerCase();
+const ALLOWED_TOOL_STATUSES = new Set(['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur']);
+const ALLOWED_DAMAGE_STATUSES = new Set(['offen', 'behoben']);
+const ALLOWED_BOOKING_STATUSES = new Set(['reserviert', 'ausgeliehen', 'zurueckgegeben']);
+const ALLOWED_RETURN_CONDITIONS = new Set(['gut', 'gebraucht', 'defekt', 'reinigung', 'reparatur']);
+const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const MAX_IMAGE_BYTES = Math.max(64 * 1024, Number.parseInt(process.env.MAX_IMAGE_BYTES || String(2 * 1024 * 1024), 10) || 2 * 1024 * 1024);
+const MAX_TEXT_LENGTH = {
+  short: 120,
+  medium: 255,
+  long: 2000,
+  note: 5000
+};
+
+if (TRUST_PROXY === '1' || TRUST_PROXY === 'true' || TRUST_PROXY === 'loopback') {
+  app.set('trust proxy', 1);
+}
 
 // PostgreSQL Connection Pool
 console.log('DB Config:', {
@@ -36,18 +60,154 @@ const pool = new Pool({
   connectionTimeoutMillis: 10000,
 });
 
+function parseDurationMs(rawValue, fallbackMs) {
+  if (!rawValue) return fallbackMs;
+  const value = String(rawValue).trim().toLowerCase();
+  const match = value.match(/^(\d+)(ms|s|m|h)?$/);
+  if (!match) return fallbackMs;
+  const amount = Number.parseInt(match[1], 10);
+  const unit = match[2] || 'ms';
+  const factor = unit === 'h' ? 3600000 : unit === 'm' ? 60000 : unit === 's' ? 1000 : 1;
+  return amount * factor;
+}
+
+function parseAllowedOrigins() {
+  const candidates = [
+    process.env.FRONTEND_URL,
+    process.env.ALLOWED_ORIGINS
+  ]
+    .filter(Boolean)
+    .flatMap(value => String(value).split(','))
+    .map(value => value.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  return [...new Set(candidates)];
+}
+
+const allowedOrigins = parseAllowedOrigins();
+
+function applySecurityHeaders(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
+  res.setHeader('X-Download-Options', 'noopen');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (IS_PRODUCTION) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  if (req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-store');
+  }
+  next();
+}
+
+function createRateLimiter({ windowMs, max, keyGenerator, label }) {
+  const hits = new Map();
+
+  return (req, res, next) => {
+    const now = Date.now();
+    const key = keyGenerator ? keyGenerator(req) : req.ip || 'unknown';
+    const bucket = hits.get(key);
+
+    if (!bucket || bucket.resetAt <= now) {
+      hits.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    if (bucket.count >= max) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      res.setHeader('Retry-After', retryAfterSeconds);
+      return res.status(429).json({
+        error: 'Zu viele Anfragen. Bitte später erneut versuchen.',
+        code: 'rate_limited',
+        scope: label,
+        retry_after_seconds: retryAfterSeconds
+      });
+    }
+
+    bucket.count += 1;
+    next();
+  };
+}
+
+const globalApiLimiter = createRateLimiter({
+  windowMs: parseDurationMs(process.env.RATE_LIMIT_WINDOW_MS || '15m', 15 * 60 * 1000),
+  max: Math.max(20, Number.parseInt(process.env.RATE_LIMIT_MAX || '300', 10) || 300),
+  label: 'global_api'
+});
+
+const authLimiter = createRateLimiter({
+  windowMs: parseDurationMs(process.env.AUTH_RATE_LIMIT_WINDOW_MS || '15m', 15 * 60 * 1000),
+  max: Math.max(3, Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX || '10', 10) || 10),
+  label: 'admin_auth'
+});
+
+const adminActionLimiter = createRateLimiter({
+  windowMs: parseDurationMs(process.env.ADMIN_RATE_LIMIT_WINDOW_MS || '5m', 5 * 60 * 1000),
+  max: Math.max(5, Number.parseInt(process.env.ADMIN_RATE_LIMIT_MAX || '60', 10) || 60),
+  label: 'admin_actions'
+});
+
 // Middleware
+app.use(applySecurityHeaders);
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*'
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    const normalizedOrigin = String(origin).replace(/\/$/, '');
+    if (!allowedOrigins.length || allowedOrigins.includes(normalizedOrigin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origin nicht erlaubt')); 
+  },
+  credentials: true
 }));
-app.use(bodyParser.json({ limit: '50mb' }));
-app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
+app.use(bodyParser.json({ limit: REQUEST_BODY_LIMIT }));
+app.use(bodyParser.urlencoded({ extended: true, limit: REQUEST_BODY_LIMIT }));
+app.use('/api', globalApiLimiter);
 
 // Request logging (Helps debugging 404s in Azure)
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log(`[${new Date().toISOString()}] ${req.ip} ${req.method} ${req.originalUrl}`);
   next();
 });
+
+function hashValue(value) {
+  return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+function createAdminToken() {
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + (ADMIN_TOKEN_TTL_HOURS * 60 * 60 * 1000);
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const payload = `${issuedAt}.${expiresAt}.${nonce}`;
+  const signature = crypto.createHmac('sha256', ADMIN_TOKEN_SECRET).update(payload).digest('hex');
+  return Buffer.from(`${payload}.${signature}`).toString('base64url');
+}
+
+function verifyAdminToken(token) {
+  if (!token) return false;
+
+  try {
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const [issuedAt, expiresAt, nonce, signature] = decoded.split('.');
+    if (!issuedAt || !expiresAt || !nonce || !signature) return false;
+
+    const payload = `${issuedAt}.${expiresAt}.${nonce}`;
+    const expectedSignature = crypto.createHmac('sha256', ADMIN_TOKEN_SECRET).update(payload).digest('hex');
+    const provided = Buffer.from(signature, 'hex');
+    const expected = Buffer.from(expectedSignature, 'hex');
+
+    if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+      return false;
+    }
+
+    return Number.parseInt(expiresAt, 10) > Date.now();
+  } catch (error) {
+    return false;
+  }
+}
 
 function normalizeIsoDate(dateInput) {
   if (!dateInput) return null;
@@ -78,6 +238,208 @@ function coerceNullableText(value) {
   return normalized ? normalized : null;
 }
 
+function sanitizeText(value, { maxLength = MAX_TEXT_LENGTH.medium, allowEmpty = false } = {}) {
+  if (value === undefined || value === null) return allowEmpty ? '' : null;
+  const normalized = String(value).replace(/\0/g, '').trim();
+  if (!normalized) return allowEmpty ? '' : null;
+  return normalized.slice(0, maxLength);
+}
+
+function sanitizeEnum(value, allowedValues) {
+  const normalized = sanitizeText(value, { maxLength: MAX_TEXT_LENGTH.short });
+  if (!normalized) return null;
+  return allowedValues.has(normalized) ? normalized : null;
+}
+
+function normalizeId(value) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeBoolean(value, fallback = false) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
+}
+
+function validateBase64Image(value) {
+  const input = sanitizeText(value, { maxLength: MAX_IMAGE_BYTES * 2, allowEmpty: false });
+  if (!input) return { value: null, error: null };
+
+  const match = input.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) {
+    return { value: null, error: 'Bild muss als gültige data:image/*;base64-URL übertragen werden' };
+  }
+
+  const mimeType = match[1].toLowerCase();
+  if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
+    return { value: null, error: 'Nicht erlaubter Bildtyp' };
+  }
+
+  const base64Payload = match[2].replace(/\s+/g, '');
+  const buffer = Buffer.from(base64Payload, 'base64');
+  if (!buffer.length) {
+    return { value: null, error: 'Leeres Bild ist nicht erlaubt' };
+  }
+
+  if (buffer.length > MAX_IMAGE_BYTES) {
+    return { value: null, error: `Bild ist zu groß (max. ${MAX_IMAGE_BYTES} Bytes)` };
+  }
+
+  return { value: `data:${mimeType};base64,${base64Payload}`, error: null };
+}
+
+function validateToolPayload(body, { partial = false } = {}) {
+  const errors = [];
+  const payload = {};
+
+  const assignRequiredText = (field, maxLength) => {
+    const value = sanitizeText(body[field], { maxLength });
+    if (!value && !partial) errors.push(`${field} ist erforderlich`);
+    if (value) payload[field] = value;
+  };
+
+  const assignOptionalText = (field, maxLength) => {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      payload[field] = sanitizeText(body[field], { maxLength }) || null;
+    }
+  };
+
+  assignRequiredText('name', MAX_TEXT_LENGTH.medium);
+  assignRequiredText('inventarnummer', MAX_TEXT_LENGTH.short);
+  assignOptionalText('icon', MAX_TEXT_LENGTH.short);
+  assignOptionalText('beschreibung', MAX_TEXT_LENGTH.note);
+  assignOptionalText('zustand', MAX_TEXT_LENGTH.short);
+  assignOptionalText('kategorie', MAX_TEXT_LENGTH.short);
+  assignOptionalText('lagerplatz', MAX_TEXT_LENGTH.short);
+  assignOptionalText('wartung_notiz', MAX_TEXT_LENGTH.long);
+
+  if (Object.prototype.hasOwnProperty.call(body, 'status')) {
+    const status = sanitizeEnum(body.status, ALLOWED_TOOL_STATUSES);
+    if (!status) errors.push('Ungültiger Status');
+    else payload.status = status;
+  }
+
+  const wartungsintervallTage = coercePositiveIntegerOrNull(body.wartungsintervall_tage);
+  if (Object.prototype.hasOwnProperty.call(body, 'wartungsintervall_tage')) {
+    if (body.wartungsintervall_tage !== null && body.wartungsintervall_tage !== '' && wartungsintervallTage === null) {
+      errors.push('wartungsintervall_tage muss eine positive Ganzzahl sein');
+    }
+    payload.wartungsintervall_tage = wartungsintervallTage;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'letzte_wartung_am')) {
+    const letzteWartungAm = body.letzte_wartung_am ? normalizeIsoDate(body.letzte_wartung_am) : null;
+    if (body.letzte_wartung_am && !letzteWartungAm) {
+      errors.push('letzte_wartung_am hat kein gültiges Datum');
+    }
+    payload.letzte_wartung_am = letzteWartungAm;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body, 'foto')) {
+    const foto = validateBase64Image(body.foto);
+    if (foto.error) errors.push(`foto: ${foto.error}`);
+    payload.foto = foto.value;
+  }
+
+  return { valid: errors.length === 0, errors, payload };
+}
+
+function validateBookingPayload(body) {
+  const errors = [];
+  const mitarbeiter_name = sanitizeText(body.mitarbeiter_name, { maxLength: MAX_TEXT_LENGTH.medium });
+  const mitarbeiter_email = normalizeEmail(body.mitarbeiter_email);
+  const datum_von = normalizeIsoDate(body.datum_von);
+  const datum_bis = normalizeIsoDate(body.datum_bis);
+  const werkzeuge = Array.isArray(body.werkzeuge)
+    ? [...new Set(body.werkzeuge.map(normalizeId).filter(Boolean))]
+    : [];
+
+  if (!mitarbeiter_name) errors.push('mitarbeiter_name ist erforderlich');
+  if (body.mitarbeiter_email && !mitarbeiter_email) errors.push('mitarbeiter_email ist ungültig');
+  if (!datum_von || !datum_bis) errors.push('datum_von und datum_bis müssen gültige Datumswerte sein');
+  if (datum_von && datum_bis && datum_von >= datum_bis) errors.push('Das Bis-Datum muss nach dem Von-Datum liegen');
+  if (!werkzeuge.length) errors.push('Mindestens ein gültiges Werkzeug ist erforderlich');
+  if (werkzeuge.length > 20) errors.push('Es dürfen maximal 20 Werkzeuge gleichzeitig reserviert werden');
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    payload: {
+      werkzeuge,
+      mitarbeiter_name,
+      mitarbeiter_email,
+      datum_von,
+      datum_bis
+    }
+  };
+}
+
+function validateDamagePayload(body) {
+  const errors = [];
+  const werkzeug_id = normalizeId(body.werkzeug_id);
+  const mitarbeiter_name = sanitizeText(body.mitarbeiter_name, { maxLength: MAX_TEXT_LENGTH.medium });
+  const beschreibung = sanitizeText(body.beschreibung, { maxLength: MAX_TEXT_LENGTH.note });
+  const foto = validateBase64Image(body.foto);
+
+  if (!werkzeug_id) errors.push('werkzeug_id muss eine positive Ganzzahl sein');
+  if (!mitarbeiter_name) errors.push('mitarbeiter_name ist erforderlich');
+  if (!beschreibung) errors.push('beschreibung ist erforderlich');
+  if (foto.error) errors.push(`foto: ${foto.error}`);
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    payload: {
+      werkzeug_id,
+      mitarbeiter_name,
+      beschreibung,
+      foto: foto.value
+    }
+  };
+}
+
+function validateReturnPayload(body) {
+  const errors = [];
+  const rueckgabe_zustand = sanitizeEnum(body.rueckgabe_zustand, ALLOWED_RETURN_CONDITIONS);
+  const rueckgabe_kommentar = sanitizeText(body.rueckgabe_kommentar, { maxLength: MAX_TEXT_LENGTH.long }) || null;
+
+  if (!rueckgabe_zustand) errors.push('rueckgabe_zustand ist ungültig');
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    payload: { rueckgabe_zustand, rueckgabe_kommentar }
+  };
+}
+
+function validateMaintenancePayload(body) {
+  const errors = [];
+  const durchgefuehrt_am = body.durchgefuehrt_am ? normalizeIsoDate(body.durchgefuehrt_am) : new Date().toISOString().slice(0, 10);
+  const notiz = sanitizeText(body.notiz, { maxLength: MAX_TEXT_LENGTH.long }) || null;
+
+  if (body.durchgefuehrt_am && !durchgefuehrt_am) errors.push('durchgefuehrt_am ist ungültig');
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    payload: { durchgefuehrt_am, notiz }
+  };
+}
+
+function normalizeEmail(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+}
+
+function buildPersonContact(name, email) {
+  const normalizedEmail = normalizeEmail(email);
+  return {
+    name: String(name || '').trim(),
+    email: normalizedEmail
+  };
+}
+
 function calculateNextMaintenanceDate(lastMaintenanceDate, intervalDays) {
   if (!lastMaintenanceDate || !intervalDays) return null;
   return addDays(lastMaintenanceDate, intervalDays);
@@ -94,21 +456,6 @@ function calculateMaintenanceStatus(nextMaintenanceDate) {
 
 function escapePdfText(value) {
   return String(value ?? '').trim() || '-';
-}
-
-
-function normalizeEmail(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return null;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
-}
-
-function buildPersonContact(name, email) {
-  const normalizedEmail = normalizeEmail(email);
-  return {
-    name: String(name || '').trim(),
-    email: normalizedEmail
-  };
 }
 
 function mailNotificationsEnabled() {
@@ -173,11 +520,49 @@ async function ensureEmailSchema() {
   `);
 }
 
+async function ensureAuditLogSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id SERIAL PRIMARY KEY,
+      action TEXT NOT NULL,
+      path TEXT NOT NULL,
+      method TEXT NOT NULL,
+      ip_address TEXT,
+      actor TEXT,
+      success BOOLEAN NOT NULL DEFAULT true,
+      metadata JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON admin_audit_log(created_at DESC)
+  `);
+}
+
 async function logEmailNotification(client, notificationType, recipient, metadata = {}) {
   await client.query(`
     INSERT INTO email_notifications_log (notification_type, recipient, metadata)
     VALUES ($1, $2, $3::jsonb)
   `, [notificationType, recipient || null, JSON.stringify(metadata || {})]);
+}
+
+async function logAdminAudit({ req, action, success = true, actor = 'admin', metadata = {} }) {
+  try {
+    await pool.query(`
+      INSERT INTO admin_audit_log (action, path, method, ip_address, actor, success, metadata)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+    `, [
+      action,
+      req.originalUrl,
+      req.method,
+      req.ip || null,
+      actor,
+      success,
+      JSON.stringify(metadata || {})
+    ]);
+  } catch (error) {
+    console.error('Audit-Log fehlgeschlagen:', error.message);
+  }
 }
 
 async function hasEmailNotificationBeenSentToday(client, notificationType, recipient) {
@@ -582,6 +967,29 @@ async function refreshToolStatus(client, werkzeugId) {
   return fallbackStatus;
 }
 
+function requireAdmin(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '').trim();
+  if (!token || !verifyAdminToken(token)) {
+    return res.status(401).json({ error: 'Admin-Berechtigung erforderlich' });
+  }
+  next();
+}
+
+function validateIdParam(req, res, next) {
+  const id = normalizeId(req.params.id);
+  if (!id) {
+    return res.status(400).json({ error: 'Ungültige ID' });
+  }
+  req.params.id = String(id);
+  next();
+}
+
+function handleValidation(result, res) {
+  if (result.valid) return false;
+  res.status(400).json({ error: 'Validierung fehlgeschlagen', details: result.errors });
+  return true;
+}
+
 // Health Check
 app.get('/api/health', async (req, res) => {
   try {
@@ -593,18 +1001,41 @@ app.get('/api/health', async (req, res) => {
 });
 
 // Admin Authentifizierung
-app.post('/api/admin/auth', (req, res) => {
-  const { password } = req.body;
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+app.post('/api/admin/auth', authLimiter, async (req, res) => {
+  const password = String(req.body?.password || '');
 
-  if (password === adminPassword) {
-    const token = Buffer.from(`admin:${Date.now()}`).toString('base64');
+  if (!password) {
+    return res.status(400).json({ success: false, message: 'Passwort fehlt' });
+  }
+
+  const passwordBuffer = Buffer.from(password);
+  const adminPasswordBuffer = Buffer.from(ADMIN_PASSWORD);
+  const matches = passwordBuffer.length === adminPasswordBuffer.length
+    && crypto.timingSafeEqual(passwordBuffer, adminPasswordBuffer);
+
+  if (matches) {
+    const token = createAdminToken();
+    await logAdminAudit({
+      req,
+      action: 'admin.auth.success',
+      success: true,
+      actor: 'admin-login',
+      metadata: { password_hash: hashValue(password).slice(0, 12) }
+    });
     res.json({
       success: true,
-      token: token,
-      message: 'Admin-Modus aktiviert'
+      token,
+      message: 'Admin-Modus aktiviert',
+      expires_in_hours: ADMIN_TOKEN_TTL_HOURS
     });
   } else {
+    await logAdminAudit({
+      req,
+      action: 'admin.auth.failure',
+      success: false,
+      actor: 'admin-login',
+      metadata: { password_hash: hashValue(password).slice(0, 12) }
+    });
     res.status(401).json({
       success: false,
       message: 'Falsches Passwort'
@@ -619,21 +1050,16 @@ app.get('/api/admin/verify', (req, res) => {
     return res.status(401).json({ valid: false });
   }
 
-  try {
-    const decoded = Buffer.from(token, 'base64').toString();
-    const isValid = decoded.startsWith('admin:');
-
-    res.json({ valid: isValid });
-  } catch (err) {
-    res.status(401).json({ valid: false });
-  }
+  res.json({ valid: verifyAdminToken(token) });
 });
 
 // ==================== WERKZEUGE ====================
 
 app.get('/api/werkzeuge', async (req, res) => {
   try {
-    const { kategorie, status, search } = req.query;
+    const kategorie = sanitizeText(req.query.kategorie, { maxLength: MAX_TEXT_LENGTH.short });
+    const status = sanitizeEnum(req.query.status, ALLOWED_TOOL_STATUSES);
+    const search = sanitizeText(req.query.search, { maxLength: MAX_TEXT_LENGTH.medium });
 
     let query = 'SELECT * FROM werkzeuge WHERE 1=1';
     const params = [];
@@ -665,7 +1091,7 @@ app.get('/api/werkzeuge', async (req, res) => {
   }
 });
 
-app.get('/api/werkzeuge/:id', async (req, res) => {
+app.get('/api/werkzeuge/:id', validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('SELECT * FROM werkzeuge WHERE id = $1', [id]);
@@ -683,13 +1109,13 @@ app.get('/api/werkzeuge/:id', async (req, res) => {
   }
 });
 
-app.post('/api/werkzeuge', async (req, res) => {
+app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) => {
   try {
-    const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, wartungsintervall_tage, letzte_wartung_am, wartung_notiz } = req.body;
+    const validation = validateToolPayload(req.body);
+    if (handleValidation(validation, res)) return;
 
-    const wartungsintervallTage = coercePositiveIntegerOrNull(wartungsintervall_tage);
-    const letzteWartungAm = normalizeIsoDate(letzte_wartung_am);
-    const naechsteWartungAm = calculateNextMaintenanceDate(letzteWartungAm, wartungsintervallTage);
+    const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, wartungsintervall_tage, letzte_wartung_am, wartung_notiz } = validation.payload;
+    const naechsteWartungAm = calculateNextMaintenanceDate(letzte_wartung_am, wartungsintervall_tage);
 
     const result = await pool.query(`
       INSERT INTO werkzeuge (
@@ -707,11 +1133,17 @@ app.post('/api/werkzeuge', async (req, res) => {
       foto,
       kategorie,
       lagerplatz,
-      wartungsintervallTage,
-      letzteWartungAm,
+      wartungsintervall_tage,
+      letzte_wartung_am,
       naechsteWartungAm,
       coerceNullableText(wartung_notiz)
     ]);
+
+    await logAdminAudit({
+      req,
+      action: 'tool.create',
+      metadata: { toolId: result.rows[0].id, inventarnummer }
+    });
 
     res.status(201).json({
       ...result.rows[0],
@@ -725,27 +1157,20 @@ app.post('/api/werkzeuge', async (req, res) => {
   }
 });
 
-app.put('/api/werkzeuge/:id', async (req, res) => {
+app.put('/api/werkzeuge/:id', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      name,
-      icon,
-      beschreibung,
-      inventarnummer,
-      zustand,
-      foto,
-      kategorie,
-      lagerplatz,
-      status,
-      wartungsintervall_tage,
-      letzte_wartung_am,
-      wartung_notiz
-    } = req.body;
+    const validation = validateToolPayload(req.body, { partial: true });
+    if (handleValidation(validation, res)) return;
 
-    const wartungsintervallTage = coercePositiveIntegerOrNull(wartungsintervall_tage);
-    const letzteWartungAm = normalizeIsoDate(letzte_wartung_am);
-    const naechsteWartungAm = calculateNextMaintenanceDate(letzteWartungAm, wartungsintervallTage);
+    const currentResult = await pool.query('SELECT * FROM werkzeuge WHERE id = $1', [id]);
+    if (currentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
+    }
+
+    const current = currentResult.rows[0];
+    const merged = { ...current, ...validation.payload };
+    const naechsteWartungAm = calculateNextMaintenanceDate(merged.letzte_wartung_am, merged.wartungsintervall_tage);
 
     const result = await pool.query(`
       UPDATE werkzeuge
@@ -754,7 +1179,7 @@ app.put('/api/werkzeuge/:id', async (req, res) => {
           beschreibung = $3,
           inventarnummer = $4,
           zustand = $5,
-          foto = COALESCE($6, foto),
+          foto = $6,
           kategorie = $7,
           lagerplatz = $8,
           status = $9,
@@ -766,36 +1191,41 @@ app.put('/api/werkzeuge/:id', async (req, res) => {
       WHERE id = $14
       RETURNING *
     `, [
-      name,
-      icon,
-      beschreibung,
-      inventarnummer,
-      zustand,
-      foto || null,
-      kategorie,
-      lagerplatz,
-      status,
-      wartungsintervallTage,
-      letzteWartungAm,
+      merged.name,
+      merged.icon,
+      merged.beschreibung,
+      merged.inventarnummer,
+      merged.zustand,
+      merged.foto,
+      merged.kategorie,
+      merged.lagerplatz,
+      merged.status,
+      merged.wartungsintervall_tage,
+      merged.letzte_wartung_am,
       naechsteWartungAm,
-      coerceNullableText(wartung_notiz),
+      coerceNullableText(merged.wartung_notiz),
       id
     ]);
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
-    }
+    await logAdminAudit({
+      req,
+      action: 'tool.update',
+      metadata: { toolId: Number(id), inventarnummer: merged.inventarnummer }
+    });
 
     res.json({
       ...result.rows[0],
       wartungsstatus: calculateMaintenanceStatus(result.rows[0].naechste_wartung_am)
     });
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Inventarnummer bereits vorhanden' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
 
-app.delete('/api/werkzeuge/:id', async (req, res) => {
+app.delete('/api/werkzeuge/:id', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('DELETE FROM werkzeuge WHERE id = $1 RETURNING *', [id]);
@@ -803,6 +1233,12 @@ app.delete('/api/werkzeuge/:id', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
     }
+
+    await logAdminAudit({
+      req,
+      action: 'tool.delete',
+      metadata: { toolId: Number(id), inventarnummer: result.rows[0].inventarnummer }
+    });
 
     res.json({ message: 'Werkzeug gelöscht', data: result.rows[0] });
   } catch (err) {
@@ -843,7 +1279,7 @@ app.get('/api/wartungen', async (req, res) => {
   }
 });
 
-app.get('/api/werkzeuge/:id/wartungen', async (req, res) => {
+app.get('/api/werkzeuge/:id/wartungen', validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(`
@@ -860,13 +1296,14 @@ app.get('/api/werkzeuge/:id/wartungen', async (req, res) => {
   }
 });
 
-app.post('/api/werkzeuge/:id/wartungen', async (req, res) => {
+app.post('/api/werkzeuge/:id/wartungen', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   const client = await pool.connect();
 
   try {
     const { id } = req.params;
-    const { durchgefuehrt_am, notiz } = req.body;
-    const durchgefuehrtAm = normalizeIsoDate(durchgefuehrt_am) || new Date().toISOString().slice(0, 10);
+    const validation = validateMaintenancePayload(req.body);
+    if (handleValidation(validation, res)) return;
+    const { durchgefuehrt_am, notiz } = validation.payload;
 
     await client.query('BEGIN');
 
@@ -880,13 +1317,13 @@ app.post('/api/werkzeuge/:id/wartungen', async (req, res) => {
     }
 
     const werkzeug = werkzeugResult.rows[0];
-    const nextMaintenanceDate = calculateNextMaintenanceDate(durchgefuehrtAm, werkzeug.wartungsintervall_tage);
+    const nextMaintenanceDate = calculateNextMaintenanceDate(durchgefuehrt_am, werkzeug.wartungsintervall_tage);
 
     const maintenanceResult = await client.query(`
       INSERT INTO wartungen (werkzeug_id, durchgefuehrt_am, notiz)
       VALUES ($1, $2, $3)
       RETURNING *
-    `, [id, durchgefuehrtAm, coerceNullableText(notiz)]);
+    `, [id, durchgefuehrt_am, coerceNullableText(notiz)]);
 
     const toolResult = await client.query(`
       UPDATE werkzeuge
@@ -895,9 +1332,15 @@ app.post('/api/werkzeuge/:id/wartungen', async (req, res) => {
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $3
       RETURNING *
-    `, [durchgefuehrtAm, nextMaintenanceDate, id]);
+    `, [durchgefuehrt_am, nextMaintenanceDate, id]);
 
     await client.query('COMMIT');
+
+    await logAdminAudit({
+      req,
+      action: 'maintenance.create',
+      metadata: { toolId: Number(id), maintenanceId: maintenanceResult.rows[0].id }
+    });
 
     res.status(201).json({
       wartung: maintenanceResult.rows[0],
@@ -908,6 +1351,9 @@ app.post('/api/werkzeuge/:id/wartungen', async (req, res) => {
     });
   } catch (err) {
     await client.query('ROLLBACK');
+    if (err.message === 'Werkzeug nicht gefunden') {
+      return res.status(404).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
@@ -918,7 +1364,9 @@ app.post('/api/werkzeuge/:id/wartungen', async (req, res) => {
 
 app.get('/api/ausleihen', async (req, res) => {
   try {
-    const { status, mitarbeiter_name, active_only } = req.query;
+    const status = sanitizeEnum(req.query.status, ALLOWED_BOOKING_STATUSES);
+    const mitarbeiter_name = sanitizeText(req.query.mitarbeiter_name, { maxLength: MAX_TEXT_LENGTH.medium });
+    const activeOnly = normalizeBoolean(req.query.active_only, false);
 
     let query = `
       SELECT a.*, w.name as werkzeug_name, w.inventarnummer, w.icon
@@ -934,11 +1382,11 @@ app.get('/api/ausleihen', async (req, res) => {
     }
 
     if (mitarbeiter_name) {
-      params.push(mitarbeiter_name.trim());
+      params.push(mitarbeiter_name);
       conditions.push(`LOWER(TRIM(a.mitarbeiter_name)) = LOWER(TRIM($${params.length}))`);
     }
 
-    if (active_only === 'true') {
+    if (activeOnly) {
       conditions.push(`a.status IN ('reserviert', 'ausgeliehen')`);
     }
 
@@ -957,13 +1405,17 @@ app.get('/api/ausleihen', async (req, res) => {
 
 app.get('/api/ausleihen/kalender', async (req, res) => {
   try {
-    const { from, days, werkzeug_id, kategorie, active_only } = req.query;
+    const toolId = req.query.werkzeug_id ? normalizeId(req.query.werkzeug_id) : null;
+    if (req.query.werkzeug_id && !toolId) {
+      return res.status(400).json({ error: 'werkzeug_id ist ungültig' });
+    }
+
     const calendar = await getToolBookingCalendar({
-      from,
-      days,
-      toolId: werkzeug_id ? Number.parseInt(werkzeug_id, 10) : null,
-      category: kategorie || null,
-      onlyActive: active_only !== 'false'
+      from: req.query.from,
+      days: req.query.days,
+      toolId,
+      category: sanitizeText(req.query.kategorie, { maxLength: MAX_TEXT_LENGTH.short }) || null,
+      onlyActive: normalizeBoolean(req.query.active_only, true)
     });
 
     res.json(calendar);
@@ -972,7 +1424,7 @@ app.get('/api/ausleihen/kalender', async (req, res) => {
   }
 });
 
-app.get('/api/ausleihen/:id', async (req, res) => {
+app.get('/api/ausleihen/:id', validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(`
@@ -996,21 +1448,9 @@ app.post('/api/ausleihen', async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { werkzeuge, mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis } = req.body;
-    const startDate = normalizeIsoDate(datum_von);
-    const endDate = normalizeIsoDate(datum_bis);
-
-    if (!werkzeuge || werkzeuge.length === 0) {
-      return res.status(400).json({ error: 'Keine Werkzeuge ausgewählt' });
-    }
-
-    if (!startDate || !endDate) {
-      return res.status(400).json({ error: 'Ungültiger Reservierungszeitraum' });
-    }
-
-    if (startDate >= endDate) {
-      return res.status(400).json({ error: 'Das Bis-Datum muss nach dem Von-Datum liegen' });
-    }
+    const validation = validateBookingPayload(req.body);
+    if (handleValidation(validation, res)) return;
+    const { werkzeuge, mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis } = validation.payload;
 
     await client.query('BEGIN');
 
@@ -1042,7 +1482,7 @@ app.post('/api/ausleihen', async (req, res) => {
           ORDER BY a.datum_von ASC
           LIMIT 1
         `,
-        [werkzeugId, startDate, endDate]
+        [werkzeugId, datum_von, datum_bis]
       );
 
       if (overlapResult.rows.length > 0) {
@@ -1055,7 +1495,7 @@ app.post('/api/ausleihen', async (req, res) => {
         INSERT INTO ausleihen (werkzeug_id, mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis, reserviert_am, status)
         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 'reserviert')
         RETURNING *
-      `, [werkzeugId, mitarbeiter_name, contact.email, startDate, endDate]);
+      `, [werkzeugId, mitarbeiter_name, contact.email, datum_von, datum_bis]);
 
       await client.query(
         'UPDATE werkzeuge SET status = $1 WHERE id = $2',
@@ -1088,19 +1528,30 @@ app.post('/api/ausleihen', async (req, res) => {
     res.status(201).json(reservierungen);
   } catch (err) {
     await client.query('ROLLBACK');
+    if (/nicht gefunden|nicht reservierbar|bereits/.test(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-app.patch('/api/ausleihen/:id/ausgeben', async (req, res) => {
+app.patch('/api/ausleihen/:id/ausgeben', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   const client = await pool.connect();
 
   try {
     const { id } = req.params;
 
     await client.query('BEGIN');
+
+    const current = await client.query('SELECT * FROM ausleihen WHERE id = $1 FOR UPDATE', [id]);
+    if (!current.rows.length) {
+      throw new Error('Ausleihe nicht gefunden');
+    }
+    if (current.rows[0].status !== 'reserviert') {
+      throw new Error('Nur reservierte Ausleihen können ausgegeben werden');
+    }
 
     const result = await client.query(`
       UPDATE ausleihen
@@ -1109,16 +1560,18 @@ app.patch('/api/ausleihen/:id/ausgeben', async (req, res) => {
       RETURNING *
     `, [id]);
 
-    if (result.rows.length === 0) {
-      throw new Error('Ausleihe nicht gefunden');
-    }
-
     await client.query(
       'UPDATE werkzeuge SET status = $1 WHERE id = $2',
       ['ausgeliehen', result.rows[0].werkzeug_id]
     );
 
     await client.query('COMMIT');
+
+    await logAdminAudit({
+      req,
+      action: 'booking.checkout',
+      metadata: { bookingId: Number(id), toolId: result.rows[0].werkzeug_id }
+    });
 
     const notificationSettings = getNotificationSettings();
     if (notificationSettings.checkoutConfirmation) {
@@ -1135,20 +1588,33 @@ app.patch('/api/ausleihen/:id/ausgeben', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
+    if (/nicht gefunden|können ausgegeben/.test(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
+app.patch('/api/ausleihen/:id/rueckgabe', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   const client = await pool.connect();
 
   try {
     const { id } = req.params;
-    const { rueckgabe_zustand, rueckgabe_kommentar } = req.body;
+    const validation = validateReturnPayload(req.body);
+    if (handleValidation(validation, res)) return;
+    const { rueckgabe_zustand, rueckgabe_kommentar } = validation.payload;
 
     await client.query('BEGIN');
+
+    const current = await client.query('SELECT * FROM ausleihen WHERE id = $1 FOR UPDATE', [id]);
+    if (!current.rows.length) {
+      throw new Error('Ausleihe nicht gefunden');
+    }
+    if (current.rows[0].status !== 'ausgeliehen') {
+      throw new Error('Nur ausgeliehene Ausleihen können zurückgegeben werden');
+    }
 
     const result = await client.query(`
       UPDATE ausleihen
@@ -1159,10 +1625,6 @@ app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
       WHERE id = $3
       RETURNING *
     `, [rueckgabe_zustand, rueckgabe_kommentar, id]);
-
-    if (result.rows.length === 0) {
-      throw new Error('Ausleihe nicht gefunden');
-    }
 
     let neuerStatus = 'verfuegbar';
     if (rueckgabe_zustand === 'defekt') {
@@ -1184,6 +1646,12 @@ app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
 
     await client.query('COMMIT');
 
+    await logAdminAudit({
+      req,
+      action: 'booking.return',
+      metadata: { bookingId: Number(id), toolId: result.rows[0].werkzeug_id, rueckgabe_zustand }
+    });
+
     const notificationSettings = getNotificationSettings();
     if (notificationSettings.returnConfirmation) {
       const booking = await fetchBookingWithTool(client, id);
@@ -1199,13 +1667,16 @@ app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
+    if (/nicht gefunden|können zurückgegeben/.test(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-app.delete('/api/ausleihen/:id', async (req, res) => {
+app.delete('/api/ausleihen/:id', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -1226,9 +1697,19 @@ app.delete('/api/ausleihen/:id', async (req, res) => {
     await refreshToolStatus(client, werkzeugId);
 
     await client.query('COMMIT');
+
+    await logAdminAudit({
+      req,
+      action: 'booking.delete',
+      metadata: { bookingId: Number(id), toolId: werkzeugId }
+    });
+
     res.json({ message: 'Ausleihe gelöscht' });
   } catch (err) {
     await client.query('ROLLBACK');
+    if (err.message === 'Ausleihe nicht gefunden') {
+      return res.status(404).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
@@ -1239,7 +1720,7 @@ app.delete('/api/ausleihen/:id', async (req, res) => {
 
 app.get('/api/schaeden', async (req, res) => {
   try {
-    const { status } = req.query;
+    const status = sanitizeEnum(req.query.status, ALLOWED_DAMAGE_STATUSES);
 
     let query = `
       SELECT s.*, w.name as werkzeug_name, w.inventarnummer, w.icon
@@ -1266,9 +1747,16 @@ app.post('/api/schaeden', async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { werkzeug_id, mitarbeiter_name, beschreibung, foto } = req.body;
+    const validation = validateDamagePayload(req.body);
+    if (handleValidation(validation, res)) return;
+    const { werkzeug_id, mitarbeiter_name, beschreibung, foto } = validation.payload;
 
     await client.query('BEGIN');
+
+    const toolResult = await client.query('SELECT id FROM werkzeuge WHERE id = $1 FOR UPDATE', [werkzeug_id]);
+    if (!toolResult.rows.length) {
+      throw new Error('Werkzeug nicht gefunden');
+    }
 
     const result = await client.query(`
       INSERT INTO schaeden (werkzeug_id, mitarbeiter_name, beschreibung, foto)
@@ -1285,13 +1773,16 @@ app.post('/api/schaeden', async (req, res) => {
     res.status(201).json(result.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
+    if (err.message === 'Werkzeug nicht gefunden') {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-app.patch('/api/schaeden/:id/beheben', async (req, res) => {
+app.patch('/api/schaeden/:id/beheben', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -1302,27 +1793,37 @@ app.patch('/api/schaeden/:id/beheben', async (req, res) => {
     const result = await client.query(`
       UPDATE schaeden
       SET status = 'behoben'
-      WHERE id = $1
+      WHERE id = $1 AND status = 'offen'
       RETURNING *
     `, [id]);
 
     if (result.rows.length === 0) {
-      throw new Error('Schaden nicht gefunden');
+      throw new Error('Schaden nicht gefunden oder bereits behoben');
     }
 
     await refreshToolStatus(client, result.rows[0].werkzeug_id);
 
     await client.query('COMMIT');
+
+    await logAdminAudit({
+      req,
+      action: 'damage.resolve',
+      metadata: { damageId: Number(id), toolId: result.rows[0].werkzeug_id }
+    });
+
     res.json(result.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
+    if (/nicht gefunden/.test(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
   }
 });
 
-app.delete('/api/schaeden/:id', async (req, res) => {
+app.delete('/api/schaeden/:id', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('DELETE FROM schaeden WHERE id = $1 RETURNING *', [id]);
@@ -1331,23 +1832,49 @@ app.delete('/api/schaeden/:id', async (req, res) => {
       return res.status(404).json({ error: 'Schaden nicht gefunden' });
     }
 
+    await logAdminAudit({
+      req,
+      action: 'damage.delete',
+      metadata: { damageId: Number(id), toolId: result.rows[0].werkzeug_id }
+    });
+
     res.json({ message: 'Schaden gelöscht', data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/admin/notifications/overdue/run', async (req, res) => {
+app.post('/api/admin/notifications/overdue/run', requireAdmin, adminActionLimiter, async (req, res) => {
   const client = await pool.connect();
 
   try {
     const force = String(req.query.force || '').trim().toLowerCase() === 'true';
     const result = await runOverdueDigest(client, { force });
+    await logAdminAudit({
+      req,
+      action: 'admin.notifications.overdue.run',
+      metadata: { force, sent: result.sent, overdueCount: result.overdueCount }
+    });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+app.get('/api/admin/audit-log', requireAdmin, adminActionLimiter, async (req, res) => {
+  try {
+    const limit = Math.min(parsePositiveInt(req.query.limit, 50), 200);
+    const result = await pool.query(`
+      SELECT id, action, path, method, ip_address, actor, success, metadata, created_at
+      FROM admin_audit_log
+      ORDER BY created_at DESC
+      LIMIT $1
+    `, [limit]);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1471,7 +1998,18 @@ app.get('/api/export/werkzeuge', async (req, res) => {
   }
 });
 
-Promise.all([ensureMaintenanceSchema(), ensureEmailSchema()])
+app.use((err, req, res, next) => {
+  if (err && err.message === 'Origin nicht erlaubt') {
+    return res.status(403).json({ error: 'Origin nicht erlaubt' });
+  }
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'Request-Body zu groß' });
+  }
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Interner Serverfehler' });
+});
+
+Promise.all([ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchema()])
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
