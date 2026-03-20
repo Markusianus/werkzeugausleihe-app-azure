@@ -448,6 +448,7 @@ async function editWerkzeug(id) {
         document.getElementById('werkzeugIcon').value = werkzeug.icon || '';
         document.getElementById('werkzeugBeschreibung').value = werkzeug.beschreibung || '';
         document.getElementById('werkzeugInventarnummer').value = werkzeug.inventarnummer;
+        document.getElementById('werkzeugStatus').value = werkzeug.status || 'verfuegbar';
         document.getElementById('werkzeugZustand').value = werkzeug.zustand || '';
         document.getElementById('werkzeugKategorie').value = werkzeug.kategorie || '';
         document.getElementById('werkzeugLagerplatz').value = werkzeug.lagerplatz || '';
@@ -484,6 +485,7 @@ async function saveWerkzeug(event) {
         icon: document.getElementById('werkzeugIcon').value,
         beschreibung: document.getElementById('werkzeugBeschreibung').value,
         inventarnummer: document.getElementById('werkzeugInventarnummer').value,
+        status: document.getElementById('werkzeugStatus').value,
         zustand: document.getElementById('werkzeugZustand').value,
         kategorie: document.getElementById('werkzeugKategorie').value,
         lagerplatz: document.getElementById('werkzeugLagerplatz').value
@@ -498,7 +500,6 @@ async function saveWerkzeug(event) {
     try {
         if (id) {
             // Bearbeiten
-            data.status = 'verfuegbar'; // Behalte aktuellen Status bei
             await apiCall(`/werkzeuge/${id}`, {
                 method: 'PUT',
                 body: JSON.stringify(data)
