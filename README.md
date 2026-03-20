@@ -48,6 +48,42 @@ Die vollständige Logik liegt in `backend/server.js`.
 
 Schritt-für-Schritt-Guide inkl. CLI-Befehlen: `AZURE_DEPLOYMENT.md`.
 
+## Staging-Deploy während der Entwicklung
+Staging läuft bewusst **nicht** mehr über GitHub Actions für den `develop`-Branch.
+Stattdessen wird direkt per Azure Local Git deployed.
+
+Dafür gibt es jetzt das Skript:
+
+```bash
+scripts/deploy-staging.sh backend|frontend|all
+```
+
+Benötigte Umgebungsvariablen:
+
+```bash
+AZURE_STAGING_BACKEND_GIT_URL
+AZURE_STAGING_BACKEND_GIT_USERNAME
+AZURE_STAGING_BACKEND_GIT_PASSWORD
+AZURE_STAGING_FRONTEND_GIT_URL
+AZURE_STAGING_FRONTEND_GIT_USERNAME
+AZURE_STAGING_FRONTEND_GIT_PASSWORD
+```
+
+Typischer Ablauf nach einer Änderung:
+
+```bash
+# Nur Frontend geändert
+scripts/deploy-staging.sh frontend
+
+# Nur Backend geändert
+scripts/deploy-staging.sh backend
+
+# Beide Teile geändert
+scripts/deploy-staging.sh all
+```
+
+Das Skript baut jeweils ein sauberes temporäres Deploy-Repo ohne `.git` und `node_modules`, pusht dieses direkt auf die Azure-Staging-Web-App und führt danach einfache Healthchecks aus.
+
 ## Tests & Monitoring
 ```bash
 curl http://localhost:3000/api/health

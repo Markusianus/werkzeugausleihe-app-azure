@@ -58,7 +58,11 @@ Dieses Dokument ist der **erste Einstiegspunkt** für autonome Agenten, die dies
 6. **Keine destruktiven DB-Änderungen** ohne Backup-/Migrationsplan.
 
 ## Bekannte operative Hinweise
-- Es existieren separate Git-Pushes für `backend` und `frontend` Richtung Azure Remote.
+- Staging wird **nicht** über GitHub Actions vom `develop`-Branch deployed.
+- Der unterstützte Dev-/Staging-Weg ist `scripts/deploy-staging.sh backend|frontend|all`.
+- Das Skript erstellt pro Ziel ein temporäres Split-Deploy-Repo und pusht direkt auf Azure Local Git.
+- Es existieren separate Azure-Git-Deploys für `backend` und `frontend`.
+- Die funktionierenden Staging-Health-/App-URLs sind die region-spezifischen Azure-Hosts, nicht die kurzen `*.azurewebsites.net`-Namen.
 - `node init-db.js` wurde bereits genutzt; erneutes Ausführen kann Daten beeinflussen (je nach Implementierung).
 - Bei `az webapp log tail` kann Exit Code `1` auftreten; Konfiguration/Authentifizierung prüfen.
 

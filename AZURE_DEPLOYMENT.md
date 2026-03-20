@@ -430,3 +430,18 @@ Optional: Application Insights aktivieren.
 ## 🎉 Fertig & Agent-Hinweis
 - Weiteres Vorgehen: Custom Domains, CI/CD, Monitoring
 - Autonome Agenten lesen `AGENTS.md` + `agent-onboarding.json`, prüfen Healthchecks vor Deploys
+
+## Dev-/Staging-Workflow (aktueller Stand)
+- Staging wird für dieses Projekt aktuell **nicht** über GitHub Actions vom `develop`-Branch deployed.
+- Stattdessen erfolgt der Deploy direkt per **Azure Local Git**.
+- Dafür existiert im Repo das Skript:
+
+```bash
+scripts/deploy-staging.sh backend|frontend|all
+```
+
+Es erwartet Azure-Local-Git-URL + Username + Password für Backend und Frontend als Environment-Variablen, erstellt temporäre Deploy-Repos und führt danach einfache Healthchecks aus.
+
+Wichtig:
+- Für Staging wurden funktionierende region-spezifische Azure-Hosts verwendet.
+- Der direkte Dev-/Staging-Deploy soll wiederholt über das Skript erfolgen statt ad hoc per Handarbeit.
