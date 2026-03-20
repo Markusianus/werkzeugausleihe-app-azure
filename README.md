@@ -36,9 +36,23 @@ GET /api/health | /api/stats
 CRUD /api/werkzeuge
 Ausleihen: /api/ausleihen, /:id/ausgeben, /:id/rueckgabe
 Schäden: /api/schaeden, /:id/beheben
+Admin Mail: POST /api/admin/notifications/overdue/run[?force=true]
 Export: /api/export/werkzeuge
 ```
 Die vollständige Logik liegt in `backend/server.js`.
+
+## E-Mail-Benachrichtigungen (erster Wurf)
+Das Backend kann optional SMTP-basiert E-Mails versenden. Wenn keine Mail-Konfiguration gesetzt ist, bleibt die Kernfunktion nutzbar; Reservierung/Ausgabe/Rückgabe laufen weiter und Mailversand wird still übersprungen bzw. als Best-Effort behandelt.
+
+Aktuell enthalten:
+- Reservierungsbestätigung an Mitarbeitende, wenn bei der Reservierung eine E-Mail-Adresse mitgegeben wird
+- Ausgabebestätigung und Rückgabebestätigung an dieselbe Adresse
+- Überfälligkeits-Digest an Admin-Empfänger per manuellem Endpoint und optionalem täglichem Scheduler
+
+Relevante Backend-Variablen siehe `backend/.env.example`, insbesondere:
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM`
+- `MAIL_ADMIN_TO` oder `MAIL_OVERDUE_RECIPIENTS`
+- `MAIL_ENABLE_OVERDUE_SCHEDULER=true` nur setzen, wenn SMTP sauber konfiguriert ist
 
 ## Deployment in die Cloud
 1. PostgreSQL Flexible Server + Datenbank provisionieren

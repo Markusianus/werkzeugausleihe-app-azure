@@ -5,6 +5,14 @@ const bodyParser = require('body-parser');
 const PDFDocument = require('pdfkit');
 const QRCode = require('qrcode');
 const { Pool } = require('pg');
+const {
+  normalizeEmailList,
+  isMailConfigured,
+  sendEmail,
+  buildReservationEmail,
+  buildStatusEmail,
+  buildOverdueDigestEmail
+} = require('./mailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,6 +94,202 @@ function calculateMaintenanceStatus(nextMaintenanceDate) {
 
 function escapePdfText(value) {
   return String(value ?? '').trim() || '-';
+}
+
+
+function normalizeEmail(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+}
+
+function buildPersonContact(name, email) {
+  const normalizedEmail = normalizeEmail(email);
+  return {
+    name: String(name || '').trim(),
+    email: normalizedEmail
+  };
+}
+
+function mailNotificationsEnabled() {
+  return isMailConfigured();
+}
+
+function getNotificationSettings() {
+  return {
+    reservationConfirmation: String(process.env.MAIL_SEND_RESERVATION_CONFIRMATION || 'true').trim().toLowerCase() !== 'false',
+    checkoutConfirmation: String(process.env.MAIL_SEND_CHECKOUT_CONFIRMATION || 'true').trim().toLowerCase() !== 'false',
+    returnConfirmation: String(process.env.MAIL_SEND_RETURN_CONFIRMATION || 'true').trim().toLowerCase() !== 'false',
+    overdueDigest: String(process.env.MAIL_SEND_OVERDUE_DIGEST || 'true').trim().toLowerCase() !== 'false'
+  };
+}
+
+async function sendBestEffortEmail(messageFactory, contextLabel) {
+  if (!mailNotificationsEnabled()) {
+    return { skipped: true, reason: 'mail_not_configured' };
+  }
+
+  try {
+    const payload = await messageFactory();
+    if (!payload || !payload.to) {
+      return { skipped: true, reason: 'missing_recipient' };
+    }
+    return await sendEmail(payload);
+  } catch (error) {
+    console.error(`✉️ Mailversand fehlgeschlagen (${contextLabel}):`, error.message);
+    return { skipped: false, error: error.message };
+  }
+}
+
+async function fetchBookingWithTool(client, bookingId) {
+  const result = await client.query(`
+    SELECT
+      a.*, w.name AS tool_name, w.inventarnummer, w.icon
+    FROM ausleihen a
+    JOIN werkzeuge w ON w.id = a.werkzeug_id
+    WHERE a.id = $1
+  `, [bookingId]);
+
+  return result.rows[0] || null;
+}
+
+async function ensureEmailSchema() {
+  await pool.query(`
+    ALTER TABLE ausleihen
+    ADD COLUMN IF NOT EXISTS mitarbeiter_email TEXT
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_notifications_log (
+      id SERIAL PRIMARY KEY,
+      notification_type TEXT NOT NULL,
+      recipient TEXT,
+      metadata JSONB,
+      sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_email_notifications_log_type_recipient_unique_day
+    ON email_notifications_log(notification_type, recipient, ((sent_at AT TIME ZONE 'UTC')::date))
+  `);
+}
+
+async function logEmailNotification(client, notificationType, recipient, metadata = {}) {
+  await client.query(`
+    INSERT INTO email_notifications_log (notification_type, recipient, metadata)
+    VALUES ($1, $2, $3::jsonb)
+  `, [notificationType, recipient || null, JSON.stringify(metadata || {})]);
+}
+
+async function hasEmailNotificationBeenSentToday(client, notificationType, recipient) {
+  if (!recipient) return false;
+
+  const result = await client.query(`
+    SELECT 1
+    FROM email_notifications_log
+    WHERE notification_type = $1
+      AND recipient = $2
+      AND (sent_at AT TIME ZONE 'UTC')::date = CURRENT_DATE
+    LIMIT 1
+  `, [notificationType, recipient]);
+
+  return result.rows.length > 0;
+}
+
+async function runOverdueDigest(client, { force = false } = {}) {
+  const settings = getNotificationSettings();
+  if (!mailNotificationsEnabled()) {
+    return { skipped: true, reason: 'mail_not_configured', sent: 0, overdueCount: 0 };
+  }
+
+  if (!settings.overdueDigest) {
+    return { skipped: true, reason: 'overdue_digest_disabled', sent: 0, overdueCount: 0 };
+  }
+
+  const adminRecipients = normalizeEmailList(process.env.MAIL_OVERDUE_RECIPIENTS || process.env.MAIL_ADMIN_TO || '');
+  if (!adminRecipients.length) {
+    return { skipped: true, reason: 'missing_admin_recipients', sent: 0, overdueCount: 0 };
+  }
+
+  const overdueResult = await client.query(`
+    SELECT
+      a.id,
+      a.mitarbeiter_name,
+      a.mitarbeiter_email,
+      a.datum_von,
+      a.datum_bis,
+      a.status,
+      w.name AS tool_name,
+      w.inventarnummer
+    FROM ausleihen a
+    JOIN werkzeuge w ON w.id = a.werkzeug_id
+    WHERE a.status = 'ausgeliehen'
+      AND a.datum_bis < CURRENT_DATE
+    ORDER BY a.datum_bis ASC, a.id ASC
+  `);
+
+  const rows = overdueResult.rows;
+  if (!rows.length) {
+    return { skipped: true, reason: 'no_overdue_items', sent: 0, overdueCount: 0 };
+  }
+
+  let sent = 0;
+  for (const recipient of adminRecipients) {
+    if (!force) {
+      const alreadySent = await hasEmailNotificationBeenSentToday(client, 'overdue_digest', recipient);
+      if (alreadySent) {
+        continue;
+      }
+    }
+
+    const mail = buildOverdueDigestEmail({ rows, recipient: { email: recipient, name: 'Admin' } });
+    const result = await sendBestEffortEmail(() => ({ to: recipient, ...mail }), `overdue_digest:${recipient}`);
+    if (!result.skipped && !result.error) {
+      await logEmailNotification(client, 'overdue_digest', recipient, {
+        count: rows.length,
+        booking_ids: rows.map(row => row.id)
+      });
+      sent += 1;
+    }
+  }
+
+  return {
+    skipped: false,
+    sent,
+    overdueCount: rows.length,
+    recipients: adminRecipients.length
+  };
+}
+
+function startDailyOverdueScheduler() {
+  const enabled = String(process.env.MAIL_ENABLE_OVERDUE_SCHEDULER || 'false').trim().toLowerCase() === 'true';
+  if (!enabled) {
+    console.log('ℹ️ Overdue-Scheduler deaktiviert');
+    return;
+  }
+
+  if (!mailNotificationsEnabled()) {
+    console.log('ℹ️ Overdue-Scheduler nicht gestartet: Mail-Konfiguration fehlt');
+    return;
+  }
+
+  const runOnce = async () => {
+    const client = await pool.connect();
+    try {
+      const result = await runOverdueDigest(client);
+      console.log('📧 Overdue-Digest Lauf:', result);
+    } catch (error) {
+      console.error('❌ Overdue-Digest Lauf fehlgeschlagen:', error.message);
+    } finally {
+      client.release();
+    }
+  };
+
+  const intervalHours = Math.max(1, Number.parseInt(process.env.MAIL_OVERDUE_INTERVAL_HOURS || '24', 10) || 24);
+  const startupDelayMs = Math.max(10, Number.parseInt(process.env.MAIL_OVERDUE_STARTUP_DELAY_MS || '10000', 10) || 10000);
+
+  setTimeout(runOnce, startupDelayMs);
+  setInterval(runOnce, intervalHours * 60 * 60 * 1000);
+  console.log(`📅 Overdue-Scheduler aktiv (alle ${intervalHours}h)`);
 }
 
 function buildToolQrUrl(req, toolId) {
@@ -792,7 +996,7 @@ app.post('/api/ausleihen', async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const { werkzeuge, mitarbeiter_name, datum_von, datum_bis } = req.body;
+    const { werkzeuge, mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis } = req.body;
     const startDate = normalizeIsoDate(datum_von);
     const endDate = normalizeIsoDate(datum_bis);
 
@@ -846,11 +1050,12 @@ app.post('/api/ausleihen', async (req, res) => {
         throw new Error(`Werkzeug ${werkzeug.name} ist im Zeitraum ${konflikt.datum_von} bis ${konflikt.datum_bis} bereits ${konflikt.status}`);
       }
 
+      const contact = buildPersonContact(mitarbeiter_name, mitarbeiter_email);
       const result = await client.query(`
-        INSERT INTO ausleihen (werkzeug_id, mitarbeiter_name, datum_von, datum_bis, reserviert_am, status)
-        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'reserviert')
+        INSERT INTO ausleihen (werkzeug_id, mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis, reserviert_am, status)
+        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 'reserviert')
         RETURNING *
-      `, [werkzeugId, mitarbeiter_name, startDate, endDate]);
+      `, [werkzeugId, mitarbeiter_name, contact.email, startDate, endDate]);
 
       await client.query(
         'UPDATE werkzeuge SET status = $1 WHERE id = $2',
@@ -861,6 +1066,25 @@ app.post('/api/ausleihen', async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    const notificationSettings = getNotificationSettings();
+    const contact = buildPersonContact(mitarbeiter_name, mitarbeiter_email);
+    if (notificationSettings.reservationConfirmation && contact.email) {
+      const enrichedReservations = [];
+      for (const reservation of reservierungen) {
+        const fullReservation = await fetchBookingWithTool(client, reservation.id);
+        if (fullReservation) enrichedReservations.push(fullReservation);
+      }
+
+      await sendBestEffortEmail(() => ({
+        to: contact.email,
+        ...buildReservationEmail({
+          reservationGroup: { reservations: enrichedReservations },
+          recipient: contact
+        })
+      }), `reservation_confirmation:${contact.email}`);
+    }
+
     res.status(201).json(reservierungen);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -895,6 +1119,19 @@ app.patch('/api/ausleihen/:id/ausgeben', async (req, res) => {
     );
 
     await client.query('COMMIT');
+
+    const notificationSettings = getNotificationSettings();
+    if (notificationSettings.checkoutConfirmation) {
+      const booking = await fetchBookingWithTool(client, id);
+      const contact = buildPersonContact(booking?.mitarbeiter_name, booking?.mitarbeiter_email);
+      if (booking && contact.email) {
+        await sendBestEffortEmail(() => ({
+          to: contact.email,
+          ...buildStatusEmail({ booking, recipient: contact, actionLabel: 'Ausgabebestätigung' })
+        }), `checkout_confirmation:${contact.email}`);
+      }
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -946,6 +1183,19 @@ app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    const notificationSettings = getNotificationSettings();
+    if (notificationSettings.returnConfirmation) {
+      const booking = await fetchBookingWithTool(client, id);
+      const contact = buildPersonContact(booking?.mitarbeiter_name, booking?.mitarbeiter_email);
+      if (booking && contact.email) {
+        await sendBestEffortEmail(() => ({
+          to: contact.email,
+          ...buildStatusEmail({ booking, recipient: contact, actionLabel: 'Rückgabebestätigung' })
+        }), `return_confirmation:${contact.email}`);
+      }
+    }
+
     res.json(result.rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -1087,6 +1337,20 @@ app.delete('/api/schaeden/:id', async (req, res) => {
   }
 });
 
+app.post('/api/admin/notifications/overdue/run', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const force = String(req.query.force || '').trim().toLowerCase() === 'true';
+    const result = await runOverdueDigest(client, { force });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 // ==================== STATISTIKEN ====================
 
 app.get('/api/stats', async (req, res) => {
@@ -1207,13 +1471,14 @@ app.get('/api/export/werkzeuge', async (req, res) => {
   }
 });
 
-ensureMaintenanceSchema()
+Promise.all([ensureMaintenanceSchema(), ensureEmailSchema()])
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
+      startDailyOverdueScheduler();
     });
   })
   .catch((err) => {
-    console.error('❌ Wartungsschema konnte nicht initialisiert werden:', err);
+    console.error('❌ Schema konnte nicht initialisiert werden:', err);
     process.exit(1);
   });

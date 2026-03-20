@@ -345,6 +345,10 @@ async function showWarenkorb() {
                 <label>Ihr Name *</label>
                 <input type="text" id="reservierungName" placeholder="Max Mustermann" value="${escapeHtml(gespeicherterMitarbeiterName)}">
             </div>
+            <div class="form-group">
+                <label>E-Mail für Bestätigungen (optional)</label>
+                <input type="email" id="reservierungEmail" placeholder="max.mustermann@firma.de">
+            </div>
             <div class="form-row">
                 <div class="form-group">
                     <label>Von *</label>
@@ -380,6 +384,7 @@ function removeFromWarenkorb(werkzeugId) {
 
 async function submitReservierung() {
     const name = document.getElementById('reservierungName').value;
+    const email = document.getElementById('reservierungEmail').value;
     const von = document.getElementById('reservierungVon').value;
     const bis = document.getElementById('reservierungBis').value;
 
@@ -399,6 +404,7 @@ async function submitReservierung() {
             body: JSON.stringify({
                 werkzeuge: warenkorb,
                 mitarbeiter_name: name,
+                mitarbeiter_email: email,
                 datum_von: von,
                 datum_bis: bis
             })
