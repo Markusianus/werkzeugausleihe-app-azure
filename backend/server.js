@@ -204,22 +204,36 @@ app.delete('/api/werkzeuge/:id', async (req, res) => {
 // Alle Ausleihen abrufen
 app.get('/api/ausleihen', async (req, res) => {
   try {
-    const { status } = req.query;
-    
+    const { status, mitarbeiter_name, active_only } = req.query;
+
     let query = `
       SELECT a.*, w.name as werkzeug_name, w.inventarnummer, w.icon
       FROM ausleihen a
       JOIN werkzeuge w ON a.werkzeug_id = w.id
     `;
     const params = [];
-    
+    const conditions = [];
+
     if (status) {
       params.push(status);
-      query += ` WHERE a.status = $${params.length}`;
+      conditions.push(`a.status = $${params.length}`);
     }
-    
-    query += ' ORDER BY a.datum_von DESC';
-    
+
+    if (mitarbeiter_name) {
+      params.push(mitarbeiter_name.trim());
+      conditions.push(`LOWER(TRIM(a.mitarbeiter_name)) = LOWER(TRIM($${params.length}))`);
+    }
+
+    if (active_only === 'true') {
+      conditions.push(`a.status IN ('reserviert', 'ausgeliehen')`);
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+
+    query += " ORDER BY CASE a.status WHEN 'ausgeliehen' THEN 0 WHEN 'reserviert' THEN 1 ELSE 2 END, a.datum_bis ASC NULLS LAST, a.datum_von DESC";
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {

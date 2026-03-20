@@ -556,16 +556,34 @@
 
         <main class="content">
             <div id="mitarbeiterMode">
-                <div class="toolbar">
-                    <div class="search-bar">
-                        <input type="text" id="searchInput" placeholder="Suche..." oninput="filterWerkzeuge()">
-                        <select id="kategorieFilter" onchange="filterWerkzeuge()">
-                            <option value="">Alle Kategorien</option>
-                        </select>
+                <section class="section">
+                    <h2>Werkzeuge finden</h2>
+                    <div class="toolbar">
+                        <div class="search-bar">
+                            <input type="text" id="searchInput" placeholder="Suche..." oninput="filterWerkzeuge()">
+                            <select id="kategorieFilter" onchange="filterWerkzeuge()">
+                                <option value="">Alle Kategorien</option>
+                            </select>
+                        </div>
                     </div>
-                </div>
 
-                <div id="werkzeugeList" class="dashboard"></div>
+                    <div id="werkzeugeList" class="dashboard"></div>
+                </section>
+
+                <section class="section">
+                    <div class="toolbar" style="justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap;">
+                        <div>
+                            <h2>Meine aktiven Ausleihen</h2>
+                            <p style="color:#6b7280;margin-top:6px;">Reservierungen und aktuell ausgeliehene Werkzeuge eines Mitarbeiters.</p>
+                        </div>
+                        <div class="search-bar" style="margin-bottom:0; min-width:min(100%, 420px);">
+                            <input type="text" id="meineAusleihenName" placeholder="Ihr Name" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); loadMeineAusleihen(); }">
+                            <button class="btn-primary" onclick="loadMeineAusleihen()">Anzeigen</button>
+                        </div>
+                    </div>
+                    <div id="meineAusleihenEmpty" style="color:#6b7280; padding: 8px 0 12px 0;">Name eingeben, um aktive eigene Ausleihen zu sehen.</div>
+                    <div id="meineAusleihenList" class="dashboard" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));"></div>
+                </section>
             </div>
 
             <div id="adminMode" class="hidden">

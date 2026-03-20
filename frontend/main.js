@@ -4,6 +4,7 @@
 let currentMode = 'mitarbeiter';
 let warenkorb = [];
 let isAdmin = false;
+let gespeicherterMitarbeiterName = localStorage.getItem('mitarbeiterName') || '';
 
 // ==================== Initialization ====================
 
@@ -26,6 +27,8 @@ async function initApp() {
 
     // Initial mode setzen
     switchMode(currentMode);
+
+    setMitarbeiterName(gespeicherterMitarbeiterName);
 }
 
 // ==================== API Helper ====================
@@ -100,6 +103,7 @@ function switchMode(mode) {
         document.getElementById('mitarbeiterBtn').className = 'btn-primary';
         document.getElementById('adminBtn').className = 'btn-secondary';
         loadWerkzeuge();
+        loadMeineAusleihen();
     } else {
         if (!isAdmin) {
             showAdminLogin();
@@ -348,13 +352,106 @@ async function submitReservierung() {
             })
         });
         
+        setMitarbeiterName(name);
         showToast('✓ Reservierung erfolgreich!');
         warenkorb = [];
         updateWarenkorbBadge();
         closeModal('warenkorbModal');
         loadWerkzeuge();
+        loadMeineAusleihen();
     } catch (err) {
         alert('Fehler: ' + err.message);
+    }
+}
+
+
+function normalizeMitarbeiterName(name) {
+    return String(name || '').trim().replace(/\s+/g, ' ');
+}
+
+function setMitarbeiterName(name) {
+    gespeicherterMitarbeiterName = normalizeMitarbeiterName(name);
+    const input = document.getElementById('meineAusleihenName');
+    if (input && input.value !== gespeicherterMitarbeiterName) {
+        input.value = gespeicherterMitarbeiterName;
+    }
+    if (gespeicherterMitarbeiterName) {
+        localStorage.setItem('mitarbeiterName', gespeicherterMitarbeiterName);
+    } else {
+        localStorage.removeItem('mitarbeiterName');
+    }
+}
+
+function renderMeineAusleihen(ausleihen, mitarbeiterName) {
+    const list = document.getElementById('meineAusleihenList');
+    const empty = document.getElementById('meineAusleihenEmpty');
+    if (!list || !empty) return;
+
+    list.innerHTML = '';
+
+    if (!mitarbeiterName) {
+        empty.textContent = 'Name eingeben, um aktive eigene Ausleihen zu sehen.';
+        return;
+    }
+
+    if (!ausleihen.length) {
+        empty.textContent = `Keine aktiven Ausleihen für ${mitarbeiterName} gefunden.`;
+        return;
+    }
+
+    empty.textContent = `${ausleihen.length} aktive Ausleihe${ausleihen.length === 1 ? '' : 'n'} für ${mitarbeiterName}.`;
+
+    ausleihen.forEach(a => {
+        const card = document.createElement('div');
+        card.className = 'dashboard-card';
+        card.style.textAlign = 'left';
+
+        const isUeberfaellig = a.status === 'ausgeliehen' && a.datum_bis && new Date(a.datum_bis) < new Date();
+        const dateRange = `${formatDate(a.datum_von)} – ${formatDate(a.datum_bis)}`;
+        const extraHint = a.status === 'reserviert'
+            ? '<p style="margin-top:8px;font-size:0.9em;opacity:0.9;">Noch nicht ausgegeben</p>'
+            : (isUeberfaellig
+                ? '<p style="margin-top:8px;font-size:0.9em;color:#fecaca;">⚠️ Rückgabe überfällig</p>'
+                : '<p style="margin-top:8px;font-size:0.9em;opacity:0.9;">Aktuell ausgeliehen</p>');
+
+        card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
+                <div>
+                    <div style="font-size:1.6em; margin-bottom:8px;">${escapeHtml(a.icon || '🔧')}</div>
+                    <h3 style="font-size:1.2em; margin-bottom:6px;">${escapeHtml(a.werkzeug_name)}</h3>
+                    <p style="font-size:0.9em; opacity:0.9;">${escapeHtml(a.inventarnummer || '-')}</p>
+                </div>
+                <div>${getAusleiheStatusBadge(a.status)}</div>
+            </div>
+            <div style="margin-top:14px; font-size:0.95em; line-height:1.5;">
+                <div><strong>Zeitraum:</strong> ${escapeHtml(dateRange)}</div>
+                ${a.reserviert_am ? `<div><strong>Reserviert am:</strong> ${escapeHtml(formatDate(a.reserviert_am))}</div>` : ''}
+                ${a.ausgeliehen_am ? `<div><strong>Ausgegeben am:</strong> ${escapeHtml(formatDate(a.ausgeliehen_am))}</div>` : ''}
+            </div>
+            ${extraHint}
+        `;
+        list.appendChild(card);
+    });
+}
+
+async function loadMeineAusleihen() {
+    const input = document.getElementById('meineAusleihenName');
+    const mitarbeiterName = normalizeMitarbeiterName(input?.value || gespeicherterMitarbeiterName);
+    setMitarbeiterName(mitarbeiterName);
+
+    if (!mitarbeiterName) {
+        renderMeineAusleihen([], '');
+        return;
+    }
+
+    try {
+        const ausleihen = await apiCall(`/ausleihen?active_only=true&mitarbeiter_name=${encodeURIComponent(mitarbeiterName)}`);
+        renderMeineAusleihen(ausleihen, mitarbeiterName);
+    } catch (err) {
+        const empty = document.getElementById('meineAusleihenEmpty');
+        const list = document.getElementById('meineAusleihenList');
+        if (list) list.innerHTML = '';
+        if (empty) empty.textContent = `Fehler beim Laden der Ausleihen: ${err.message}`;
     }
 }
 
@@ -652,52 +749,6 @@ function getAusleiheStatusBadge(status) {
         'zurueckgegeben': '<span class="status-badge status-verfuegbar">↩️ Zurückgegeben</span>'
     };
     return badges[status] || status;
-}
-
-// Make sure frontend exposes functions matching backend endpoints for clarity
-// These wrapper helpers are used by UI buttons and ensure consistent API usage.
-async function ausgebenAusleihe(id) {
-    if (!confirm('Ausleihe ausgeben?')) return;
-    try {
-        await apiCall(`/ausleihen/${id}/ausgeben`, { method: 'PATCH' });
-        showToast('✓ Ausleihe ausgegeben!');
-        loadAusleihen();
-        loadDashboard();
-    } catch (err) {
-        alert('Fehler: ' + (err.message || err));
-    }
-}
-
-async function submitRueckgabe(event) {
-    event.preventDefault();
-    const id = document.getElementById('rueckgabeId').value;
-    const zustand = document.getElementById('rueckgabeZustand').value;
-    const kommentar = document.getElementById('rueckgabeKommentar').value;
-    try {
-        await apiCall(`/ausleihen/${id}/rueckgabe`, {
-            method: 'PATCH',
-            body: JSON.stringify({ rueckgabe_zustand: zustand, rueckgabe_kommentar: kommentar })
-        });
-        showToast('✓ Rückgabe dokumentiert!');
-        closeModal('rueckgabeModal');
-        loadAusleihen();
-        loadDashboard();
-    } catch (err) {
-        alert('Fehler: ' + (err.message || err));
-    }
-}
-
-async function behebenSchaden(id) {
-    if (!confirm('Schaden als behoben markieren?')) return;
-    try {
-        await apiCall(`/schaeden/${id}/beheben`, { method: 'PATCH' });
-        showToast('✓ Schaden behoben!');
-        loadSchaeden();
-        loadDashboard();
-        loadAdminWerkzeuge();
-    } catch (err) {
-        alert('Fehler: ' + (err.message || err));
-    }
 }
 
 async function ausgebenAusleihe(id) {
