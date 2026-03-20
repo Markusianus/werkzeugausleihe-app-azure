@@ -12,6 +12,7 @@ let kalenderState = {
     kategorie: ''
 };
 let wartungsverlaufWerkzeugId = null;
+let selectedToolIdsForPdf = new Set();
 
 // ==================== Initialization ====================
 
@@ -657,6 +658,103 @@ async function loadDashboard() {
 
 // ==================== Admin Werkzeuge ====================
 
+function updateToolSelectionSummary(totalTools = null) {
+    const summary = document.getElementById('toolSelectionSummary');
+    if (!summary) return;
+
+    const selectedCount = selectedToolIdsForPdf.size;
+    if (totalTools && selectedCount === totalTools) {
+        summary.textContent = `${selectedCount} von ${totalTools} Werkzeugen für PDF-Etiketten ausgewählt`;
+        return;
+    }
+
+    if (selectedCount === 0) {
+        summary.textContent = '0 Werkzeuge für PDF-Etiketten ausgewählt';
+        return;
+    }
+
+    summary.textContent = totalTools
+        ? `${selectedCount} von ${totalTools} Werkzeugen für PDF-Etiketten ausgewählt`
+        : `${selectedCount} Werkzeuge für PDF-Etiketten ausgewählt`;
+}
+
+function toggleToolSelectionForPdf(toolId, checked) {
+    const normalizedId = Number(toolId);
+    if (!Number.isInteger(normalizedId) || normalizedId <= 0) return;
+
+    if (checked) {
+        selectedToolIdsForPdf.add(normalizedId);
+    } else {
+        selectedToolIdsForPdf.delete(normalizedId);
+    }
+
+    const table = document.getElementById('adminWerkzeugeTable');
+    const checkboxes = table ? Array.from(table.querySelectorAll('tbody input[data-tool-select="true"]')) : [];
+    const allSelected = checkboxes.length > 0 && checkboxes.every(input => input.checked);
+    const selectAll = document.getElementById('selectAllToolsCheckbox');
+    if (selectAll) selectAll.checked = allSelected;
+
+    updateToolSelectionSummary(checkboxes.length || null);
+}
+
+function toggleAllVisibleToolsSelection(checked) {
+    const table = document.getElementById('adminWerkzeugeTable');
+    if (!table) return;
+
+    const checkboxes = Array.from(table.querySelectorAll('tbody input[data-tool-select="true"]'));
+    checkboxes.forEach(input => {
+        input.checked = checked;
+        const toolId = Number(input.value);
+        if (checked) {
+            selectedToolIdsForPdf.add(toolId);
+        } else {
+            selectedToolIdsForPdf.delete(toolId);
+        }
+    });
+
+    const selectAll = document.getElementById('selectAllToolsCheckbox');
+    if (selectAll) selectAll.checked = checked && checkboxes.length > 0;
+    updateToolSelectionSummary(checkboxes.length || null);
+}
+
+function selectAllToolsForPdf(checked) {
+    toggleAllVisibleToolsSelection(checked);
+}
+
+async function exportSelectedToolLabelsPdf() {
+    try {
+        const ids = Array.from(selectedToolIdsForPdf);
+        const query = ids.length ? `?ids=${encodeURIComponent(ids.join(','))}` : '';
+        const response = await fetch(buildApiUrl(`/export/werkzeuge/pdf-labels${query}`), {
+            headers: {
+                ...(localStorage.getItem('adminToken') ? { Authorization: `Bearer ${localStorage.getItem('adminToken')}` } : {})
+            }
+        });
+
+        if (!response.ok) {
+            let message = `HTTP ${response.status}`;
+            try {
+                const error = await response.json();
+                message = error.error || message;
+            } catch (_) {
+                // ignore json parse issues for binary responses
+            }
+            throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = ids.length ? `qr-etiketten-${ids.length}-werkzeuge.pdf` : 'qr-etiketten-alle-werkzeuge.pdf';
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showToast(`✓ PDF-Etiketten exportiert${ids.length ? ` (${ids.length})` : ''}`);
+    } catch (err) {
+        alert('Fehler beim PDF-Export: ' + err.message);
+    }
+}
+
 async function loadAdminWerkzeuge(werkzeugeOverride = null) {
     try {
         const werkzeuge = werkzeugeOverride || await apiCall('/werkzeuge');
@@ -664,9 +762,13 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
         const table = document.getElementById('adminWerkzeugeTable');
         if (!table) return;
 
+        const visibleIds = new Set((werkzeuge || []).map(w => Number(w.id)).filter(id => Number.isInteger(id) && id > 0));
+        selectedToolIdsForPdf = new Set(Array.from(selectedToolIdsForPdf).filter(id => visibleIds.has(id)));
+
         table.innerHTML = `
             <thead>
                 <tr>
+                    <th class="checkbox-cell"><input type="checkbox" id="selectAllToolsCheckbox" onchange="toggleAllVisibleToolsSelection(this.checked)"></th>
                     <th>Icon</th>
                     <th>Name</th>
                     <th>Inventarnummer</th>
@@ -684,7 +786,9 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
 
         werkzeuge.forEach(w => {
             const row = document.createElement('tr');
+            const checked = selectedToolIdsForPdf.has(Number(w.id)) ? 'checked' : '';
             row.innerHTML = `
+                <td class="checkbox-cell"><input type="checkbox" data-tool-select="true" value="${Number(w.id)}" ${checked} onchange="toggleToolSelectionForPdf(${Number(w.id)}, this.checked)"></td>
                 <td>${escapeHtml(w.icon || '🔧')}</td>
                 <td>${escapeHtml(w.name)}</td>
                 <td>${escapeHtml(w.inventarnummer)}</td>
@@ -697,6 +801,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                 </td>
                 <td>
                     <button class="btn-primary btn-small" onclick="showQRCode(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${escapeForSingleQuotedJs(w.inventarnummer)}')">QR</button>
+                    <button class="btn-secondary btn-small" onclick="exportSingleToolLabelPdf(${w.id})">PDF</button>
                     <button class="btn-success btn-small" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">🛠️</button>
                     <button class="btn-secondary btn-small" onclick="showWartungsverlauf(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">📜</button>
                     <button class="btn-warning btn-small" onclick="editWerkzeug(${w.id})">✏️</button>
@@ -705,6 +810,12 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
             `;
             tbody.appendChild(row);
         });
+
+        const selectAll = document.getElementById('selectAllToolsCheckbox');
+        if (selectAll) {
+            selectAll.checked = werkzeuge.length > 0 && werkzeuge.every(w => selectedToolIdsForPdf.has(Number(w.id)));
+        }
+        updateToolSelectionSummary(werkzeuge.length);
     } catch (err) {
         console.error('Fehler beim Laden:', err);
     }
@@ -945,6 +1056,18 @@ function showQRCode(id, name, inventarnummer) {
     });
 
     document.getElementById('qrModal').classList.add('active');
+}
+
+function exportSingleToolLabelPdf(toolId) {
+    selectedToolIdsForPdf = new Set([Number(toolId)]);
+    const table = document.getElementById('adminWerkzeugeTable');
+    if (table) {
+        table.querySelectorAll('tbody input[data-tool-select="true"]').forEach(input => {
+            input.checked = Number(input.value) === Number(toolId);
+        });
+    }
+    updateToolSelectionSummary(1);
+    exportSelectedToolLabelsPdf();
 }
 
 // ==================== Ausleihen ====================

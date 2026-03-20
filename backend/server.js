@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const PDFDocument = require('pdfkit');
+const QRCode = require('qrcode');
 const { Pool } = require('pg');
 
 const app = express();
@@ -80,6 +82,115 @@ function calculateMaintenanceStatus(nextMaintenanceDate) {
   if (nextMaintenanceDate < today) return 'ueberfaellig';
   if (nextMaintenanceDate === today) return 'faellig';
   return 'geplant';
+}
+
+function escapePdfText(value) {
+  return String(value ?? '').trim() || '-';
+}
+
+function buildToolQrUrl(req, toolId) {
+  const frontendUrl = (process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
+  const fallbackOrigin = `${req.protocol}://${req.get('host')}`.replace(/\/$/, '');
+  const baseUrl = frontendUrl || fallbackOrigin;
+  return `${baseUrl}?tool=${toolId}`;
+}
+
+async function createToolLabelPdfBuffer(req, tools) {
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 24,
+    info: {
+      Title: `QR-Etiketten Werkzeuge (${tools.length})`,
+      Author: 'ToolHub',
+      Subject: 'Werkzeug QR-Etiketten'
+    }
+  });
+
+  const chunks = [];
+  doc.on('data', chunk => chunks.push(chunk));
+
+  const finished = new Promise((resolve, reject) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+
+  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+  const pageHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom;
+  const columns = 2;
+  const rows = 4;
+  const gapX = 18;
+  const gapY = 18;
+  const cardWidth = (pageWidth - gapX * (columns - 1)) / columns;
+  const cardHeight = (pageHeight - gapY * (rows - 1)) / rows;
+  const qrSize = Math.min(cardWidth - 28, cardHeight * 0.58, 150);
+
+  for (let index = 0; index < tools.length; index += 1) {
+    if (index > 0 && index % (columns * rows) === 0) {
+      doc.addPage();
+    }
+
+    const slotIndex = index % (columns * rows);
+    const column = slotIndex % columns;
+    const row = Math.floor(slotIndex / columns);
+    const x = doc.page.margins.left + column * (cardWidth + gapX);
+    const y = doc.page.margins.top + row * (cardHeight + gapY);
+    const tool = tools[index];
+    const qrUrl = buildToolQrUrl(req, tool.id);
+    const qrDataUrl = await QRCode.toDataURL(qrUrl, {
+      margin: 1,
+      width: 512,
+      errorCorrectionLevel: 'M'
+    });
+    const qrImage = Buffer.from(qrDataUrl.split(',')[1], 'base64');
+
+    doc.save();
+    doc.roundedRect(x, y, cardWidth, cardHeight, 12).lineWidth(1).strokeColor('#d1d5db').stroke();
+    doc.restore();
+
+    doc.font('Helvetica-Bold').fontSize(16).fillColor('#111827');
+    doc.text(escapePdfText(tool.name), x + 14, y + 14, {
+      width: cardWidth - 28,
+      align: 'left',
+      ellipsis: true,
+      height: 38
+    });
+
+    doc.font('Helvetica').fontSize(11).fillColor('#4b5563');
+    doc.text(`Inventarnr.: ${escapePdfText(tool.inventarnummer)}`, x + 14, y + 42, {
+      width: cardWidth - 28,
+      align: 'left',
+      ellipsis: true
+    });
+
+    if (tool.kategorie) {
+      doc.fontSize(10).fillColor('#6b7280');
+      doc.text(`Kategorie: ${escapePdfText(tool.kategorie)}`, x + 14, y + 58, {
+        width: cardWidth - 28,
+        ellipsis: true
+      });
+    }
+
+    const qrX = x + (cardWidth - qrSize) / 2;
+    const qrY = y + 80;
+    doc.image(qrImage, qrX, qrY, { width: qrSize, height: qrSize });
+
+    doc.font('Helvetica').fontSize(8).fillColor('#6b7280');
+    doc.text('QR-Code zum Werkzeug öffnen/scannen', x + 14, qrY + qrSize + 8, {
+      width: cardWidth - 28,
+      align: 'center'
+    });
+
+    doc.fontSize(7).fillColor('#9ca3af');
+    doc.text(qrUrl, x + 18, y + cardHeight - 26, {
+      width: cardWidth - 36,
+      align: 'center',
+      ellipsis: true,
+      lineBreak: false
+    });
+  }
+
+  doc.end();
+  return finished;
 }
 
 async function ensureMaintenanceSchema() {
@@ -1048,6 +1159,36 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // ==================== CSV EXPORT ====================
+
+app.get('/api/export/werkzeuge/pdf-labels', async (req, res) => {
+  try {
+    const rawIds = String(req.query.ids || '')
+      .split(',')
+      .map(value => Number.parseInt(value, 10))
+      .filter(value => Number.isInteger(value) && value > 0);
+
+    const uniqueIds = [...new Set(rawIds)];
+    const query = uniqueIds.length
+      ? 'SELECT id, name, inventarnummer, kategorie FROM werkzeuge WHERE id = ANY($1::int[]) ORDER BY name'
+      : 'SELECT id, name, inventarnummer, kategorie FROM werkzeuge ORDER BY name';
+    const params = uniqueIds.length ? [uniqueIds] : [];
+    const result = await pool.query(query, params);
+
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'Keine Werkzeuge für PDF-Export gefunden' });
+    }
+
+    const pdfBuffer = await createToolLabelPdfBuffer(req, result.rows);
+    const suffix = uniqueIds.length ? `-${result.rows.length}-werkzeuge` : '-alle-werkzeuge';
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="qr-etiketten${suffix}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/export/werkzeuge', async (req, res) => {
   try {
