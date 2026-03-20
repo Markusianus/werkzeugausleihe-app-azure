@@ -56,6 +56,83 @@ function parsePositiveInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function coercePositiveIntegerOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function coerceNullableText(value) {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized ? normalized : null;
+}
+
+function calculateNextMaintenanceDate(lastMaintenanceDate, intervalDays) {
+  if (!lastMaintenanceDate || !intervalDays) return null;
+  return addDays(lastMaintenanceDate, intervalDays);
+}
+
+function calculateMaintenanceStatus(nextMaintenanceDate) {
+  if (!nextMaintenanceDate) return 'kein_intervall';
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (nextMaintenanceDate < today) return 'ueberfaellig';
+  if (nextMaintenanceDate === today) return 'faellig';
+  return 'geplant';
+}
+
+async function ensureMaintenanceSchema() {
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS wartungsintervall_tage INTEGER
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS letzte_wartung_am DATE
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS naechste_wartung_am DATE
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS wartung_notiz TEXT
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wartungen (
+      id SERIAL PRIMARY KEY,
+      werkzeug_id INTEGER NOT NULL,
+      durchgefuehrt_am DATE NOT NULL,
+      notiz TEXT,
+      erstellt_am TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (werkzeug_id) REFERENCES werkzeuge(id) ON DELETE CASCADE
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_werkzeuge_naechste_wartung_am ON werkzeuge(naechste_wartung_am)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_wartungen_werkzeug_id ON wartungen(werkzeug_id)
+  `);
+
+  await pool.query(`
+    UPDATE werkzeuge
+    SET naechste_wartung_am =
+      CASE
+        WHEN wartungsintervall_tage IS NOT NULL AND wartungsintervall_tage > 0 AND letzte_wartung_am IS NOT NULL
+          THEN letzte_wartung_am + wartungsintervall_tage
+        ELSE NULL
+      END
+    WHERE
+      (wartungsintervall_tage IS NOT NULL OR letzte_wartung_am IS NOT NULL)
+      AND (
+        (wartungsintervall_tage IS NOT NULL AND wartungsintervall_tage > 0 AND letzte_wartung_am IS NOT NULL AND naechste_wartung_am IS DISTINCT FROM (letzte_wartung_am + wartungsintervall_tage))
+        OR ((wartungsintervall_tage IS NULL OR wartungsintervall_tage <= 0 OR letzte_wartung_am IS NULL) AND naechste_wartung_am IS NOT NULL)
+      )
+  `);
+}
+
 async function getToolBookingCalendar({ from, days, toolId, category, onlyActive = true }) {
   const normalizedFrom = normalizeIsoDate(from) || new Date().toISOString().slice(0, 10);
   const normalizedDays = Math.min(parsePositiveInt(days, 28), 84);
@@ -264,7 +341,10 @@ app.get('/api/werkzeuge', async (req, res) => {
     query += ' ORDER BY name';
 
     const result = await pool.query(query, params);
-    res.json(result.rows);
+    res.json(result.rows.map(row => ({
+      ...row,
+      wartungsstatus: calculateMaintenanceStatus(row.naechste_wartung_am)
+    })));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -279,7 +359,10 @@ app.get('/api/werkzeuge/:id', async (req, res) => {
       return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      ...result.rows[0],
+      wartungsstatus: calculateMaintenanceStatus(result.rows[0].naechste_wartung_am)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -287,15 +370,38 @@ app.get('/api/werkzeuge/:id', async (req, res) => {
 
 app.post('/api/werkzeuge', async (req, res) => {
   try {
-    const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz } = req.body;
+    const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, wartungsintervall_tage, letzte_wartung_am, wartung_notiz } = req.body;
+
+    const wartungsintervallTage = coercePositiveIntegerOrNull(wartungsintervall_tage);
+    const letzteWartungAm = normalizeIsoDate(letzte_wartung_am);
+    const naechsteWartungAm = calculateNextMaintenanceDate(letzteWartungAm, wartungsintervallTage);
 
     const result = await pool.query(`
-      INSERT INTO werkzeuge (name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar')
+      INSERT INTO werkzeuge (
+        name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status,
+        wartungsintervall_tage, letzte_wartung_am, naechste_wartung_am, wartung_notiz
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar', $9, $10, $11, $12)
       RETURNING *
-    `, [name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz]);
+    `, [
+      name,
+      icon,
+      beschreibung,
+      inventarnummer,
+      zustand,
+      foto,
+      kategorie,
+      lagerplatz,
+      wartungsintervallTage,
+      letzteWartungAm,
+      naechsteWartungAm,
+      coerceNullableText(wartung_notiz)
+    ]);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({
+      ...result.rows[0],
+      wartungsstatus: calculateMaintenanceStatus(result.rows[0].naechste_wartung_am)
+    });
   } catch (err) {
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Inventarnummer bereits vorhanden' });
@@ -307,21 +413,68 @@ app.post('/api/werkzeuge', async (req, res) => {
 app.put('/api/werkzeuge/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status } = req.body;
+    const {
+      name,
+      icon,
+      beschreibung,
+      inventarnummer,
+      zustand,
+      foto,
+      kategorie,
+      lagerplatz,
+      status,
+      wartungsintervall_tage,
+      letzte_wartung_am,
+      wartung_notiz
+    } = req.body;
+
+    const wartungsintervallTage = coercePositiveIntegerOrNull(wartungsintervall_tage);
+    const letzteWartungAm = normalizeIsoDate(letzte_wartung_am);
+    const naechsteWartungAm = calculateNextMaintenanceDate(letzteWartungAm, wartungsintervallTage);
 
     const result = await pool.query(`
       UPDATE werkzeuge
-      SET name = $1, icon = $2, beschreibung = $3, inventarnummer = $4, zustand = $5,
-          foto = $6, kategorie = $7, lagerplatz = $8, status = $9, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $10
+      SET name = $1,
+          icon = $2,
+          beschreibung = $3,
+          inventarnummer = $4,
+          zustand = $5,
+          foto = COALESCE($6, foto),
+          kategorie = $7,
+          lagerplatz = $8,
+          status = $9,
+          wartungsintervall_tage = $10,
+          letzte_wartung_am = $11,
+          naechste_wartung_am = $12,
+          wartung_notiz = $13,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $14
       RETURNING *
-    `, [name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status, id]);
+    `, [
+      name,
+      icon,
+      beschreibung,
+      inventarnummer,
+      zustand,
+      foto || null,
+      kategorie,
+      lagerplatz,
+      status,
+      wartungsintervallTage,
+      letzteWartungAm,
+      naechsteWartungAm,
+      coerceNullableText(wartung_notiz),
+      id
+    ]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      ...result.rows[0],
+      wartungsstatus: calculateMaintenanceStatus(result.rows[0].naechste_wartung_am)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -339,6 +492,110 @@ app.delete('/api/werkzeuge/:id', async (req, res) => {
     res.json({ message: 'Werkzeug gelöscht', data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/wartungen', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        w.id,
+        w.name,
+        w.icon,
+        w.inventarnummer,
+        w.status,
+        w.kategorie,
+        w.wartungsintervall_tage,
+        w.letzte_wartung_am,
+        w.naechste_wartung_am,
+        w.wartung_notiz,
+        (
+          SELECT MAX(durchgefuehrt_am)
+          FROM wartungen wa
+          WHERE wa.werkzeug_id = w.id
+        ) AS letzte_wartung_dokumentiert_am
+      FROM werkzeuge w
+      WHERE w.wartungsintervall_tage IS NOT NULL
+      ORDER BY w.naechste_wartung_am ASC NULLS LAST, w.name ASC
+    `);
+
+    res.json(result.rows.map(row => ({
+      ...row,
+      wartungsstatus: calculateMaintenanceStatus(row.naechste_wartung_am)
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/werkzeuge/:id/wartungen', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(`
+      SELECT id, werkzeug_id, durchgefuehrt_am, notiz, erstellt_am
+      FROM wartungen
+      WHERE werkzeug_id = $1
+      ORDER BY durchgefuehrt_am DESC, id DESC
+      LIMIT 20
+    `, [id]);
+
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/werkzeuge/:id/wartungen', async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+    const { durchgefuehrt_am, notiz } = req.body;
+    const durchgefuehrtAm = normalizeIsoDate(durchgefuehrt_am) || new Date().toISOString().slice(0, 10);
+
+    await client.query('BEGIN');
+
+    const werkzeugResult = await client.query(
+      'SELECT id, wartungsintervall_tage FROM werkzeuge WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+
+    if (werkzeugResult.rows.length === 0) {
+      throw new Error('Werkzeug nicht gefunden');
+    }
+
+    const werkzeug = werkzeugResult.rows[0];
+    const nextMaintenanceDate = calculateNextMaintenanceDate(durchgefuehrtAm, werkzeug.wartungsintervall_tage);
+
+    const maintenanceResult = await client.query(`
+      INSERT INTO wartungen (werkzeug_id, durchgefuehrt_am, notiz)
+      VALUES ($1, $2, $3)
+      RETURNING *
+    `, [id, durchgefuehrtAm, coerceNullableText(notiz)]);
+
+    const toolResult = await client.query(`
+      UPDATE werkzeuge
+      SET letzte_wartung_am = $1,
+          naechste_wartung_am = $2,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+      RETURNING *
+    `, [durchgefuehrtAm, nextMaintenanceDate, id]);
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      wartung: maintenanceResult.rows[0],
+      werkzeug: {
+        ...toolResult.rows[0],
+        wartungsstatus: calculateMaintenanceStatus(toolResult.rows[0].naechste_wartung_am)
+      }
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -747,6 +1004,15 @@ app.get('/api/stats', async (req, res) => {
       WHERE status = 'offen'
     `);
 
+    const wartungStats = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE wartungsintervall_tage IS NOT NULL) as mit_intervall,
+        COUNT(*) FILTER (WHERE naechste_wartung_am < CURRENT_DATE) as ueberfaellig,
+        COUNT(*) FILTER (WHERE naechste_wartung_am = CURRENT_DATE) as heute,
+        COUNT(*) FILTER (WHERE naechste_wartung_am BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days') as naechste_7_tage
+      FROM werkzeuge
+    `);
+
     const topWerkzeuge = await pool.query(`
       SELECT w.name, w.icon, COUNT(a.id) as anzahl_ausleihen
       FROM werkzeuge w
@@ -756,11 +1022,25 @@ app.get('/api/stats', async (req, res) => {
       LIMIT 5
     `);
 
+    const dueMaintenance = await pool.query(`
+      SELECT id, name, icon, inventarnummer, naechste_wartung_am, wartungsintervall_tage, status
+      FROM werkzeuge
+      WHERE naechste_wartung_am IS NOT NULL
+        AND naechste_wartung_am <= CURRENT_DATE + INTERVAL '7 days'
+      ORDER BY naechste_wartung_am ASC, name ASC
+      LIMIT 10
+    `);
+
     res.json({
       werkzeuge: stats.rows[0],
       ausleihen: ausleihenStats.rows[0],
       schaeden: schadenStats.rows[0],
-      top_werkzeuge: topWerkzeuge.rows
+      wartungen: wartungStats.rows[0],
+      top_werkzeuge: topWerkzeuge.rows,
+      faellige_wartungen: dueMaintenance.rows.map(row => ({
+        ...row,
+        wartungsstatus: calculateMaintenanceStatus(row.naechste_wartung_am)
+      }))
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -773,9 +1053,9 @@ app.get('/api/export/werkzeuge', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM werkzeuge ORDER BY name');
 
-    let csv = 'Werkzeug,Beschreibung,Zustand,Inventarnummer,Kategorie,Lagerplatz,Status\n';
+    let csv = 'Werkzeug,Beschreibung,Zustand,Inventarnummer,Kategorie,Lagerplatz,Status,WartungsintervallTage,LetzteWartung,NaechsteWartung,Wartungsnotiz\n';
     result.rows.forEach(w => {
-      csv += `"${w.name}","${w.beschreibung || ''}","${w.zustand || ''}","${w.inventarnummer}","${w.kategorie || ''}","${w.lagerplatz || ''}","${w.status}"\n`;
+      csv += `"${w.name}","${w.beschreibung || ''}","${w.zustand || ''}","${w.inventarnummer}","${w.kategorie || ''}","${w.lagerplatz || ''}","${w.status}","${w.wartungsintervall_tage || ''}","${w.letzte_wartung_am || ''}","${w.naechste_wartung_am || ''}","${w.wartung_notiz || ''}"\n`;
     });
 
     res.setHeader('Content-Type', 'text/csv');
@@ -786,6 +1066,13 @@ app.get('/api/export/werkzeuge', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
-});
+ensureMaintenanceSchema()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('❌ Wartungsschema konnte nicht initialisiert werden:', err);
+    process.exit(1);
+  });

@@ -11,6 +11,7 @@ let kalenderState = {
     days: 28,
     kategorie: ''
 };
+let wartungsverlaufWerkzeugId = null;
 
 // ==================== Initialization ====================
 
@@ -154,6 +155,25 @@ function getInitialToolIdFromUrl() {
     return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+function getWartungsStatusBadge(werkzeug) {
+    const next = werkzeug?.naechste_wartung_am;
+    const status = werkzeug?.wartungsstatus;
+
+    if (!werkzeug?.wartungsintervall_tage) {
+        return '<span class="status-badge maintenance-none">🛠️ Kein Intervall</span>';
+    }
+
+    if (status === 'ueberfaellig') {
+        return `<span class="status-badge maintenance-overdue">🚨 Wartung überfällig${next ? ` seit ${escapeHtml(formatDate(next))}` : ''}</span>`;
+    }
+
+    if (status === 'faellig') {
+        return '<span class="status-badge maintenance-due">⏰ Wartung heute fällig</span>';
+    }
+
+    return `<span class="status-badge maintenance-ok">🗓️ Nächste Wartung ${next ? escapeHtml(formatDate(next)) : 'offen'}</span>`;
+}
+
 function buildWerkzeugDetailHtml(w) {
     const isVerfuegbar = w.status === 'verfuegbar';
     return `
@@ -166,7 +186,16 @@ function buildWerkzeugDetailHtml(w) {
             ${w.kategorie ? `<span>🏷️ ${escapeHtml(w.kategorie)}</span>` : ''}
             ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
         </div>
-        <div style="margin-bottom:16px;">${getStatusBadge(w.status)}</div>
+        <div style="margin-bottom:12px;">${getStatusBadge(w.status)}</div>
+        <div style="margin-bottom:16px;">${getWartungsStatusBadge(w)}</div>
+        ${w.wartungsintervall_tage ? `
+            <div class="info" style="margin-bottom:16px;text-align:left;">
+                <strong>Wartung:</strong> alle ${escapeHtml(w.wartungsintervall_tage)} Tage<br>
+                <strong>Letzte Wartung:</strong> ${escapeHtml(formatDate(w.letzte_wartung_am))}<br>
+                <strong>Nächste Wartung:</strong> ${escapeHtml(formatDate(w.naechste_wartung_am))}
+                ${w.wartung_notiz ? `<br><strong>Hinweis:</strong> ${escapeHtml(w.wartung_notiz)}` : ''}
+            </div>
+        ` : ''}
         <button class="btn-primary" onclick="addToWarenkorb(${Number(w.id)}); closeModal('toolDetailModal');" ${!isVerfuegbar ? 'disabled' : ''}>
             ${isVerfuegbar ? '➕ In den Warenkorb' : 'Nicht verfügbar'}
         </button>
@@ -225,6 +254,7 @@ async function loadWerkzeuge(filter = {}) {
                         ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
                     </div>
                     ${statusBadge}
+                    <div style="margin-top:8px;">${getWartungsStatusBadge(w)}</div>
                 </div>
                 <button class="btn-secondary" onclick="showWerkzeugDetail(${w.id})">ℹ️ Details</button>
                 <button class="btn-primary" onclick="addToWarenkorb(${w.id})" ${!isVerfuegbar ? 'disabled' : ''}>
@@ -398,6 +428,7 @@ function setMitarbeiterName(name) {
     if (input && input.value !== gespeicherterMitarbeiterName) {
         input.value = gespeicherterMitarbeiterName;
     }
+
     if (gespeicherterMitarbeiterName) {
         localStorage.setItem('mitarbeiterName', gespeicherterMitarbeiterName);
     } else {
@@ -533,11 +564,47 @@ async function submitSchaden(event) {
 
 // ==================== Admin Dashboard ====================
 
+function renderFaelligeWartungen(items) {
+    const list = document.getElementById('faelligeWartungenList');
+    if (!list) return;
+
+    list.innerHTML = '';
+
+    if (!items || !items.length) {
+        list.innerHTML = '<li>Keine fälligen Wartungen in den nächsten 7 Tagen.</li>';
+        return;
+    }
+
+    items.forEach(item => {
+        const li = document.createElement('li');
+        const statusText = item.wartungsstatus === 'ueberfaellig'
+            ? 'überfällig'
+            : item.wartungsstatus === 'faellig'
+                ? 'heute fällig'
+                : `fällig am ${formatDate(item.naechste_wartung_am)}`;
+
+        li.innerHTML = `
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+                <div>
+                    <strong>${escapeHtml(item.icon || '🔧')} ${escapeHtml(item.name)}</strong>
+                    <div style="font-size:0.9em;color:#6b7280;">${escapeHtml(item.inventarnummer || '-')} · ${escapeHtml(statusText)}</div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn-success btn-small" onclick="showWartungDurchfuehren(${item.id}, '${escapeForSingleQuotedJs(item.name)}')">✓ Wartung erledigt</button>
+                    <button class="btn-secondary btn-small" onclick="showWartungsverlauf(${item.id}, '${escapeForSingleQuotedJs(item.name)}')">📜 Verlauf</button>
+                </div>
+            </div>
+        `;
+        list.appendChild(li);
+    });
+}
+
 async function loadDashboard() {
     try {
-        const [stats, werkzeuge] = await Promise.all([
+        const [stats, werkzeuge, wartungen] = await Promise.all([
             apiCall('/stats'),
-            apiCall('/werkzeuge')
+            apiCall('/werkzeuge'),
+            apiCall('/wartungen')
         ]);
 
         const setStat = (id, value) => {
@@ -556,6 +623,10 @@ async function loadDashboard() {
         setStat('statAusleihenUeberfaellig', stats.ausleihen?.ueberfaellig);
 
         setStat('statSchaeden', stats.schaeden?.offen);
+        setStat('statWartungIntervall', stats.wartungen?.mit_intervall);
+        setStat('statWartungFaellig', stats.wartungen?.ueberfaellig);
+        setStat('statWartungHeute', stats.wartungen?.heute);
+        setStat('statWartung7Tage', stats.wartungen?.naechste_7_tage);
 
         const topList = document.getElementById('topWerkzeugeList');
         if (topList) {
@@ -567,6 +638,8 @@ async function loadDashboard() {
             });
         }
 
+        renderFaelligeWartungen(stats.faellige_wartungen || []);
+
         kalenderKategorien = Array.from(new Set(
             (werkzeuge || []).map(w => (w.kategorie || '').trim()).filter(Boolean)
         )).sort((a, b) => a.localeCompare(b, 'de'));
@@ -576,6 +649,7 @@ async function loadDashboard() {
         loadAusleihen();
         loadSchaeden();
         loadKalender();
+        loadWartungen(wartungen);
     } catch (err) {
         console.error('Fehler beim Laden der Stats:', err);
     }
@@ -599,6 +673,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                     <th>Kategorie</th>
                     <th>Lagerplatz</th>
                     <th>Status</th>
+                    <th>Wartung</th>
                     <th>Aktionen</th>
                 </tr>
             </thead>
@@ -617,7 +692,13 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                 <td>${escapeHtml(w.lagerplatz || '-')}</td>
                 <td>${getStatusBadge(w.status)}</td>
                 <td>
+                    ${getWartungsStatusBadge(w)}
+                    ${w.wartungsintervall_tage ? `<div style="font-size:0.8em;margin-top:6px;color:#6b7280;">${escapeHtml(w.wartungsintervall_tage)} Tage · zuletzt ${escapeHtml(formatDate(w.letzte_wartung_am))}</div>` : ''}
+                </td>
+                <td>
                     <button class="btn-primary btn-small" onclick="showQRCode(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${escapeForSingleQuotedJs(w.inventarnummer)}')">QR</button>
+                    <button class="btn-success btn-small" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">🛠️</button>
+                    <button class="btn-secondary btn-small" onclick="showWartungsverlauf(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">📜</button>
                     <button class="btn-warning btn-small" onclick="editWerkzeug(${w.id})">✏️</button>
                     <button class="btn-danger btn-small" onclick="deleteWerkzeug(${w.id})">🗑️</button>
                 </td>
@@ -634,6 +715,9 @@ function showAddWerkzeug() {
     document.getElementById('werkzeugId').value = '';
     document.getElementById('werkzeugFotoPreview').innerHTML = '';
     document.getElementById('werkzeugModalTitle').textContent = 'Neues Werkzeug hinzufügen';
+    document.getElementById('werkzeugWartungsintervall').value = '';
+    document.getElementById('werkzeugLetzteWartung').value = '';
+    document.getElementById('werkzeugWartungNotiz').value = '';
     document.getElementById('werkzeugModal').classList.add('active');
 }
 
@@ -650,6 +734,9 @@ async function editWerkzeug(id) {
         document.getElementById('werkzeugZustand').value = werkzeug.zustand || '';
         document.getElementById('werkzeugKategorie').value = werkzeug.kategorie || '';
         document.getElementById('werkzeugLagerplatz').value = werkzeug.lagerplatz || '';
+        document.getElementById('werkzeugWartungsintervall').value = werkzeug.wartungsintervall_tage || '';
+        document.getElementById('werkzeugLetzteWartung').value = werkzeug.letzte_wartung_am || '';
+        document.getElementById('werkzeugWartungNotiz').value = werkzeug.wartung_notiz || '';
 
         if (werkzeug.foto) {
             document.getElementById('werkzeugFotoPreview').innerHTML =
@@ -686,7 +773,10 @@ async function saveWerkzeug(event) {
         status: document.getElementById('werkzeugStatus').value,
         zustand: document.getElementById('werkzeugZustand').value,
         kategorie: document.getElementById('werkzeugKategorie').value,
-        lagerplatz: document.getElementById('werkzeugLagerplatz').value
+        lagerplatz: document.getElementById('werkzeugLagerplatz').value,
+        wartungsintervall_tage: document.getElementById('werkzeugWartungsintervall').value,
+        letzte_wartung_am: document.getElementById('werkzeugLetzteWartung').value,
+        wartung_notiz: document.getElementById('werkzeugWartungNotiz').value
     };
 
     const fotoInput = document.getElementById('werkzeugFoto');
@@ -727,6 +817,114 @@ async function deleteWerkzeug(id) {
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
+    }
+}
+
+// ==================== Wartungen ====================
+
+function loadWartungen(wartungen) {
+    const table = document.getElementById('wartungenTable');
+    if (!table) return;
+
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Werkzeug</th>
+                <th>Intervall</th>
+                <th>Letzte Wartung</th>
+                <th>Nächste Wartung</th>
+                <th>Status</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    `;
+
+    const tbody = table.querySelector('tbody');
+
+    (wartungen || []).forEach(w => {
+        const row = document.createElement('tr');
+        if (w.wartungsstatus === 'ueberfaellig') row.classList.add('overdue');
+        row.innerHTML = `
+            <td>
+                <strong>${escapeHtml(w.icon || '🔧')} ${escapeHtml(w.name)}</strong>
+                <div style="font-size:0.85em;color:#6b7280;">${escapeHtml(w.inventarnummer || '-')}</div>
+            </td>
+            <td>${w.wartungsintervall_tage ? `${escapeHtml(w.wartungsintervall_tage)} Tage` : '-'}</td>
+            <td>${escapeHtml(formatDate(w.letzte_wartung_am))}</td>
+            <td>${escapeHtml(formatDate(w.naechste_wartung_am))}</td>
+            <td>
+                ${getWartungsStatusBadge(w)}
+                ${w.wartung_notiz ? `<div style="font-size:0.8em;margin-top:6px;color:#6b7280;">${escapeHtml(w.wartung_notiz)}</div>` : ''}
+            </td>
+            <td>
+                <button class="btn-success btn-small" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">✓ Erledigt</button>
+                <button class="btn-secondary btn-small" onclick="showWartungsverlauf(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">📜 Verlauf</button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    if (!(wartungen || []).length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;">Noch keine Werkzeuge mit Wartungsintervall vorhanden.</td></tr>';
+    }
+}
+
+function showWartungDurchfuehren(id, name) {
+    document.getElementById('wartungWerkzeugId').value = id;
+    document.getElementById('wartungWerkzeugName').textContent = name;
+    document.getElementById('wartungDurchgefuehrtAm').value = toIsoDate(new Date());
+    document.getElementById('wartungNotiz').value = '';
+    document.getElementById('wartungModal').classList.add('active');
+}
+
+async function submitWartung(event) {
+    event.preventDefault();
+
+    const werkzeugId = document.getElementById('wartungWerkzeugId').value;
+    const durchgefuehrtAm = document.getElementById('wartungDurchgefuehrtAm').value;
+    const notiz = document.getElementById('wartungNotiz').value;
+
+    try {
+        await apiCall(`/werkzeuge/${werkzeugId}/wartungen`, {
+            method: 'POST',
+            body: JSON.stringify({
+                durchgefuehrt_am: durchgefuehrtAm,
+                notiz
+            })
+        });
+
+        showToast('✓ Wartung dokumentiert!');
+        closeModal('wartungModal');
+        loadDashboard();
+    } catch (err) {
+        alert('Fehler: ' + err.message);
+    }
+}
+
+async function showWartungsverlauf(id, name) {
+    wartungsverlaufWerkzeugId = id;
+    document.getElementById('wartungHistoryTitle').textContent = `Wartungsverlauf – ${name}`;
+    const list = document.getElementById('wartungHistoryList');
+    list.innerHTML = '<li>Lade…</li>';
+    document.getElementById('wartungHistoryModal').classList.add('active');
+
+    try {
+        const items = await apiCall(`/werkzeuge/${id}/wartungen`);
+        if (!items.length) {
+            list.innerHTML = '<li>Noch keine dokumentierten Wartungen.</li>';
+            return;
+        }
+
+        list.innerHTML = items.map(item => `
+            <li>
+                <strong>${escapeHtml(formatDate(item.durchgefuehrt_am))}</strong>
+                <div style="font-size:0.9em;color:#6b7280;">Erfasst: ${escapeHtml(formatDate(item.erstellt_am))}</div>
+                <div>${escapeHtml(item.notiz || 'Keine Notiz')}</div>
+            </li>
+        `).join('');
+    } catch (err) {
+        list.innerHTML = `<li>Fehler beim Laden: ${escapeHtml(err.message)}</li>`;
     }
 }
 
@@ -1148,7 +1346,10 @@ async function importCSV(event) {
             zustand: parts[2],
             inventarnummer: parts[3],
             kategorie: parts[4] || '',
-            lagerplatz: parts[5] || ''
+            lagerplatz: parts[5] || '',
+            wartungsintervall_tage: parts[7] || '',
+            letzte_wartung_am: parts[8] || '',
+            wartung_notiz: parts[10] || ''
         };
 
         try {
@@ -1235,6 +1436,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('schadenForm')?.addEventListener('submit', submitSchaden);
     document.getElementById('werkzeugForm')?.addEventListener('submit', saveWerkzeug);
     document.getElementById('rueckgabeForm')?.addEventListener('submit', submitRueckgabe);
+    document.getElementById('wartungForm')?.addEventListener('submit', submitWartung);
     document.getElementById('kalenderStart')?.addEventListener('change', loadKalender);
     document.getElementById('kalenderKategorieFilter')?.addEventListener('change', loadKalender);
 

@@ -588,10 +588,20 @@
                         <div class="dashboard-card"><h3 id="statAusleihenAusgeliehen">-</h3><p>Ausleihen aktiv</p></div>
                         <div class="dashboard-card alert"><h3 id="statAusleihenUeberfaellig">-</h3><p>Überfällige Ausleihen</p></div>
                         <div class="dashboard-card alert"><h3 id="statSchaeden">-</h3><p>Offene Schäden</p></div>
+                        <div class="dashboard-card"><h3 id="statWartungIntervall">-</h3><p>Werkzeuge mit Wartungsintervall</p></div>
+                        <div class="dashboard-card alert"><h3 id="statWartungFaellig">-</h3><p>Wartung überfällig</p></div>
+                        <div class="dashboard-card"><h3 id="statWartungHeute">-</h3><p>Wartung heute</p></div>
+                        <div class="dashboard-card"><h3 id="statWartung7Tage">-</h3><p>Wartung in 7 Tagen</p></div>
                     </div>
-                    <div>
-                        <h3>Top Werkzeuge</h3>
-                        <ul id="topWerkzeugeList"></ul>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:start;">
+                        <div>
+                            <h3>Top Werkzeuge</h3>
+                            <ul id="topWerkzeugeList"></ul>
+                        </div>
+                        <div>
+                            <h3>Fällige Wartungen</h3>
+                            <ul id="faelligeWartungenList"></ul>
+                        </div>
                     </div>
                 </section>
 
@@ -638,6 +648,14 @@
                         <button class="btn-secondary" onclick="loadAusleihen()">Aktualisieren</button>
                     </div>
                     <table id="ausleihenTable"></table>
+                </section>
+
+                <section class="section">
+                    <h3>Wartungen</h3>
+                    <div class="filter-bar">
+                        <button class="btn-secondary" onclick="loadDashboard()">Aktualisieren</button>
+                    </div>
+                    <table id="wartungenTable"></table>
                 </section>
 
                 <section class="section">
@@ -721,6 +739,11 @@
                     <div class="form-group"><label for="werkzeugZustand">Zustand</label><input type="text" id="werkzeugZustand"></div>
                     <div class="form-group"><label for="werkzeugKategorie">Kategorie</label><input type="text" id="werkzeugKategorie"></div>
                     <div class="form-group"><label for="werkzeugLagerplatz">Lagerplatz</label><input type="text" id="werkzeugLagerplatz"></div>
+                    <div class="form-row">
+                        <div class="form-group"><label for="werkzeugWartungsintervall">Wartungsintervall (Tage)</label><input type="number" min="1" id="werkzeugWartungsintervall"></div>
+                        <div class="form-group"><label for="werkzeugLetzteWartung">Letzte Wartung</label><input type="date" id="werkzeugLetzteWartung"></div>
+                    </div>
+                    <div class="form-group"><label for="werkzeugWartungNotiz">Wartungshinweis</label><textarea id="werkzeugWartungNotiz" rows="3" placeholder="z. B. Schmierung, Sichtprüfung, DGUV-Prüfung"></textarea></div>
                     <div class="form-group">
                         <label class="file-input-label" for="werkzeugFoto">Foto</label>
                         <input type="file" id="werkzeugFoto" accept="image/*" onchange="previewWerkzeugFoto(this)">
@@ -753,6 +776,34 @@
                     <button class="btn-primary" type="submit">Rückgabe bestätigen</button>
                     <button type="button" class="btn-secondary" onclick="closeModal('rueckgabeModal')">Abbrechen</button>
                 </form>
+            </div>
+        </div>
+
+        <div id="wartungModal" class="modal">
+            <div class="modal-content">
+                <h2>Wartung dokumentieren</h2>
+                <p id="wartungWerkzeugName" style="margin-bottom:12px;color:#6b7280;"></p>
+                <form id="wartungForm">
+                    <input type="hidden" id="wartungWerkzeugId">
+                    <div class="form-group">
+                        <label for="wartungDurchgefuehrtAm">Durchgeführt am</label>
+                        <input type="date" id="wartungDurchgefuehrtAm" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="wartungNotiz">Notiz</label>
+                        <textarea id="wartungNotiz" rows="4" placeholder="Was wurde gemacht?"></textarea>
+                    </div>
+                    <button class="btn-primary" type="submit">Wartung speichern</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal('wartungModal')">Abbrechen</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="wartungHistoryModal" class="modal">
+            <div class="modal-content">
+                <h2 id="wartungHistoryTitle">Wartungsverlauf</h2>
+                <ul id="wartungHistoryList" style="display:grid;gap:12px;padding-left:20px;"></ul>
+                <button type="button" class="btn-secondary" onclick="closeModal('wartungHistoryModal')">Schließen</button>
             </div>
         </div>
 
