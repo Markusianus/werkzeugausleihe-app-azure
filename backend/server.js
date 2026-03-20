@@ -23,14 +23,14 @@ const pool = new Pool({
   ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000, // Erhöht von 2000ms auf 10000ms
+  connectionTimeoutMillis: 10000,
 });
 
 // Middleware
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*'
 }));
-app.use(bodyParser.json({ limit: '50mb' })); // Für Base64 Fotos
+app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
 // Request logging (Helps debugging 404s in Azure)
@@ -38,6 +38,157 @@ app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
   next();
 });
+
+function normalizeIsoDate(dateInput) {
+  if (!dateInput) return null;
+  const value = String(dateInput).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function addDays(isoDate, days) {
+  const date = new Date(`${isoDate}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+async function getToolBookingCalendar({ from, days, toolId, category, onlyActive = true }) {
+  const normalizedFrom = normalizeIsoDate(from) || new Date().toISOString().slice(0, 10);
+  const normalizedDays = Math.min(parsePositiveInt(days, 28), 84);
+  const normalizedTo = addDays(normalizedFrom, normalizedDays - 1);
+
+  const toolParams = [];
+  const toolConditions = [];
+
+  if (toolId) {
+    toolParams.push(toolId);
+    toolConditions.push(`w.id = $${toolParams.length}`);
+  }
+
+  if (category) {
+    toolParams.push(category);
+    toolConditions.push(`w.kategorie = $${toolParams.length}`);
+  }
+
+  const toolQuery = `
+    SELECT w.id, w.name, w.icon, w.inventarnummer, w.status, w.kategorie
+    FROM werkzeuge w
+    ${toolConditions.length ? `WHERE ${toolConditions.join(' AND ')}` : ''}
+    ORDER BY w.name
+  `;
+  const toolResult = await pool.query(toolQuery, toolParams);
+  const tools = toolResult.rows;
+
+  if (tools.length === 0) {
+    return {
+      from: normalizedFrom,
+      to: normalizedTo,
+      days: normalizedDays,
+      generated_at: new Date().toISOString(),
+      date_headers: [],
+      tools: []
+    };
+  }
+
+  const bookingParams = [normalizedFrom, normalizedTo, tools.map(t => t.id)];
+  const bookingConditions = [
+    'a.datum_von <= $2::date',
+    'a.datum_bis >= $1::date',
+    'a.werkzeug_id = ANY($3::int[])'
+  ];
+
+  if (onlyActive) {
+    bookingConditions.push(`a.status IN ('reserviert', 'ausgeliehen')`);
+  }
+
+  const bookingQuery = `
+    SELECT
+      a.id,
+      a.werkzeug_id,
+      a.mitarbeiter_name,
+      a.datum_von,
+      a.datum_bis,
+      a.status,
+      a.reserviert_am,
+      a.ausgeliehen_am,
+      a.zurueckgegeben_am
+    FROM ausleihen a
+    WHERE ${bookingConditions.join(' AND ')}
+    ORDER BY a.datum_von, a.id
+  `;
+
+  const bookingResult = await pool.query(bookingQuery, bookingParams);
+  const bookingsByTool = new Map();
+
+  for (const booking of bookingResult.rows) {
+    if (!bookingsByTool.has(booking.werkzeug_id)) {
+      bookingsByTool.set(booking.werkzeug_id, []);
+    }
+    bookingsByTool.get(booking.werkzeug_id).push(booking);
+  }
+
+  const dateHeaders = [];
+  for (let offset = 0; offset < normalizedDays; offset += 1) {
+    dateHeaders.push(addDays(normalizedFrom, offset));
+  }
+
+  const enrichedTools = tools.map(tool => ({
+    ...tool,
+    bookings: bookingsByTool.get(tool.id) || []
+  }));
+
+  return {
+    from: normalizedFrom,
+    to: normalizedTo,
+    days: normalizedDays,
+    generated_at: new Date().toISOString(),
+    date_headers: dateHeaders,
+    tools: enrichedTools
+  };
+}
+
+async function refreshToolStatus(client, werkzeugId) {
+  const bookingResult = await client.query(
+    `
+      SELECT status
+      FROM ausleihen
+      WHERE werkzeug_id = $1
+        AND status IN ('reserviert', 'ausgeliehen')
+      ORDER BY CASE status WHEN 'ausgeliehen' THEN 0 ELSE 1 END, datum_von ASC, id ASC
+      LIMIT 1
+    `,
+    [werkzeugId]
+  );
+
+  if (bookingResult.rows.length > 0) {
+    await client.query(
+      'UPDATE werkzeuge SET status = $1 WHERE id = $2',
+      [bookingResult.rows[0].status, werkzeugId]
+    );
+    return bookingResult.rows[0].status;
+  }
+
+  const toolResult = await client.query('SELECT status FROM werkzeuge WHERE id = $1', [werkzeugId]);
+  if (toolResult.rows.length === 0) {
+    throw new Error(`Werkzeug ${werkzeugId} nicht gefunden`);
+  }
+
+  const currentStatus = toolResult.rows[0].status;
+  const fallbackStatus = ['defekt', 'reinigung', 'reparatur'].includes(currentStatus)
+    ? currentStatus
+    : 'verfuegbar';
+
+  await client.query(
+    'UPDATE werkzeuge SET status = $1 WHERE id = $2',
+    [fallbackStatus, werkzeugId]
+  );
+
+  return fallbackStatus;
+}
 
 // Health Check
 app.get('/api/health', async (req, res) => {
@@ -55,7 +206,6 @@ app.post('/api/admin/auth', (req, res) => {
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
 
   if (password === adminPassword) {
-    // Einfache Token-basierte Auth (für Demo - in Produktion JWT verwenden)
     const token = Buffer.from(`admin:${Date.now()}`).toString('base64');
     res.json({
       success: true,
@@ -78,8 +228,6 @@ app.get('/api/admin/verify', (req, res) => {
   }
 
   try {
-    // Einfache Token-Verifizierung (für Demo)
-    //TODO: In Produktion sollte hier eine robustere Methode verwendet werden (z.B. JWT mit Secret)
     const decoded = Buffer.from(token, 'base64').toString();
     const isValid = decoded.startsWith('admin:');
 
@@ -91,31 +239,30 @@ app.get('/api/admin/verify', (req, res) => {
 
 // ==================== WERKZEUGE ====================
 
-// Alle Werkzeuge abrufen
 app.get('/api/werkzeuge', async (req, res) => {
   try {
     const { kategorie, status, search } = req.query;
-    
+
     let query = 'SELECT * FROM werkzeuge WHERE 1=1';
     const params = [];
-    
+
     if (kategorie) {
       params.push(kategorie);
       query += ` AND kategorie = $${params.length}`;
     }
-    
+
     if (status) {
       params.push(status);
       query += ` AND status = $${params.length}`;
     }
-    
+
     if (search) {
       params.push(`%${search}%`);
       query += ` AND (name ILIKE $${params.length} OR beschreibung ILIKE $${params.length} OR inventarnummer ILIKE $${params.length})`;
     }
-    
+
     query += ' ORDER BY name';
-    
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
@@ -123,33 +270,31 @@ app.get('/api/werkzeuge', async (req, res) => {
   }
 });
 
-// Einzelnes Werkzeug abrufen
 app.get('/api/werkzeuge/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('SELECT * FROM werkzeuge WHERE id = $1', [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
     }
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Neues Werkzeug erstellen
 app.post('/api/werkzeuge', async (req, res) => {
   try {
     const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz } = req.body;
-    
+
     const result = await pool.query(`
       INSERT INTO werkzeuge (name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar')
       RETURNING *
     `, [name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz]);
-    
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     if (err.code === '23505') {
@@ -159,40 +304,38 @@ app.post('/api/werkzeuge', async (req, res) => {
   }
 });
 
-// Werkzeug aktualisieren
 app.put('/api/werkzeuge/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status } = req.body;
-    
+
     const result = await pool.query(`
-      UPDATE werkzeuge 
-      SET name = $1, icon = $2, beschreibung = $3, inventarnummer = $4, zustand = $5, 
+      UPDATE werkzeuge
+      SET name = $1, icon = $2, beschreibung = $3, inventarnummer = $4, zustand = $5,
           foto = $6, kategorie = $7, lagerplatz = $8, status = $9, updated_at = CURRENT_TIMESTAMP
       WHERE id = $10
       RETURNING *
     `, [name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status, id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
     }
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Werkzeug löschen
 app.delete('/api/werkzeuge/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('DELETE FROM werkzeuge WHERE id = $1 RETURNING *', [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
     }
-    
+
     res.json({ message: 'Werkzeug gelöscht', data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -201,7 +344,6 @@ app.delete('/api/werkzeuge/:id', async (req, res) => {
 
 // ==================== AUSLEIHEN ====================
 
-// Alle Ausleihen abrufen
 app.get('/api/ausleihen', async (req, res) => {
   try {
     const { status, mitarbeiter_name, active_only } = req.query;
@@ -241,7 +383,23 @@ app.get('/api/ausleihen', async (req, res) => {
   }
 });
 
-// Einzelne Ausleihe abrufen
+app.get('/api/ausleihen/kalender', async (req, res) => {
+  try {
+    const { from, days, werkzeug_id, kategorie, active_only } = req.query;
+    const calendar = await getToolBookingCalendar({
+      from,
+      days,
+      toolId: werkzeug_id ? Number.parseInt(werkzeug_id, 10) : null,
+      category: kategorie || null,
+      onlyActive: active_only !== 'false'
+    });
+
+    res.json(calendar);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/ausleihen/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -251,66 +409,91 @@ app.get('/api/ausleihen/:id', async (req, res) => {
       JOIN werkzeuge w ON a.werkzeug_id = w.id
       WHERE a.id = $1
     `, [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Ausleihe nicht gefunden' });
     }
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Neue Reservierung erstellen
 app.post('/api/ausleihen', async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { werkzeuge, mitarbeiter_name, datum_von, datum_bis } = req.body;
-    
+    const startDate = normalizeIsoDate(datum_von);
+    const endDate = normalizeIsoDate(datum_bis);
+
     if (!werkzeuge || werkzeuge.length === 0) {
       return res.status(400).json({ error: 'Keine Werkzeuge ausgewählt' });
     }
-    
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Ungültiger Reservierungszeitraum' });
+    }
+
+    if (startDate >= endDate) {
+      return res.status(400).json({ error: 'Das Bis-Datum muss nach dem Von-Datum liegen' });
+    }
+
     await client.query('BEGIN');
-    
+
     const reservierungen = [];
-    
+
     for (const werkzeugId of werkzeuge) {
-      // Prüfe ob Werkzeug verfügbar
       const werkzeugResult = await client.query(
-        'SELECT status FROM werkzeuge WHERE id = $1 FOR UPDATE',
+        'SELECT id, name, status FROM werkzeuge WHERE id = $1 FOR UPDATE',
         [werkzeugId]
       );
-      
+
       if (werkzeugResult.rows.length === 0) {
         throw new Error(`Werkzeug ${werkzeugId} nicht gefunden`);
       }
-      
-      if (werkzeugResult.rows[0].status !== 'verfuegbar') {
-        throw new Error(`Werkzeug ${werkzeugId} ist nicht verfügbar`);
+
+      const werkzeug = werkzeugResult.rows[0];
+      if (['defekt', 'reinigung', 'reparatur'].includes(werkzeug.status)) {
+        throw new Error(`Werkzeug ${werkzeug.name} ist aktuell nicht reservierbar (${werkzeug.status})`);
       }
-      
-      // Reservierung erstellen
+
+      const overlapResult = await client.query(
+        `
+          SELECT a.id, a.status, a.datum_von, a.datum_bis, a.mitarbeiter_name
+          FROM ausleihen a
+          WHERE a.werkzeug_id = $1
+            AND a.status IN ('reserviert', 'ausgeliehen')
+            AND a.datum_von <= $3::date
+            AND a.datum_bis >= $2::date
+          ORDER BY a.datum_von ASC
+          LIMIT 1
+        `,
+        [werkzeugId, startDate, endDate]
+      );
+
+      if (overlapResult.rows.length > 0) {
+        const konflikt = overlapResult.rows[0];
+        throw new Error(`Werkzeug ${werkzeug.name} ist im Zeitraum ${konflikt.datum_von} bis ${konflikt.datum_bis} bereits ${konflikt.status}`);
+      }
+
       const result = await client.query(`
         INSERT INTO ausleihen (werkzeug_id, mitarbeiter_name, datum_von, datum_bis, reserviert_am, status)
         VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'reserviert')
         RETURNING *
-      `, [werkzeugId, mitarbeiter_name, datum_von, datum_bis]);
-      
-      // Werkzeug-Status aktualisieren
+      `, [werkzeugId, mitarbeiter_name, startDate, endDate]);
+
       await client.query(
         'UPDATE werkzeuge SET status = $1 WHERE id = $2',
         ['reserviert', werkzeugId]
       );
-      
+
       reservierungen.push(result.rows[0]);
     }
-    
+
     await client.query('COMMIT');
     res.status(201).json(reservierungen);
-    
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
@@ -319,36 +502,32 @@ app.post('/api/ausleihen', async (req, res) => {
   }
 });
 
-// Ausleihe ausgeben (Admin)
 app.patch('/api/ausleihen/:id/ausgeben', async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { id } = req.params;
-    
+
     await client.query('BEGIN');
-    
-    // Status aktualisieren
+
     const result = await client.query(`
-      UPDATE ausleihen 
+      UPDATE ausleihen
       SET status = 'ausgeliehen', ausgeliehen_am = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *
     `, [id]);
-    
+
     if (result.rows.length === 0) {
       throw new Error('Ausleihe nicht gefunden');
     }
-    
-    // Werkzeug-Status aktualisieren
+
     await client.query(
       'UPDATE werkzeuge SET status = $1 WHERE id = $2',
       ['ausgeliehen', result.rows[0].werkzeug_id]
     );
-    
+
     await client.query('COMMIT');
     res.json(result.rows[0]);
-    
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
@@ -357,32 +536,29 @@ app.patch('/api/ausleihen/:id/ausgeben', async (req, res) => {
   }
 });
 
-// Rückgabe dokumentieren (Admin)
 app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { id } = req.params;
     const { rueckgabe_zustand, rueckgabe_kommentar } = req.body;
-    
+
     await client.query('BEGIN');
-    
-    // Ausleihe aktualisieren
+
     const result = await client.query(`
-      UPDATE ausleihen 
-      SET status = 'zurueckgegeben', 
+      UPDATE ausleihen
+      SET status = 'zurueckgegeben',
           zurueckgegeben_am = CURRENT_TIMESTAMP,
           rueckgabe_zustand = $1,
           rueckgabe_kommentar = $2
       WHERE id = $3
       RETURNING *
     `, [rueckgabe_zustand, rueckgabe_kommentar, id]);
-    
+
     if (result.rows.length === 0) {
       throw new Error('Ausleihe nicht gefunden');
     }
-    
-    // Werkzeug-Status aktualisieren
+
     let neuerStatus = 'verfuegbar';
     if (rueckgabe_zustand === 'defekt') {
       neuerStatus = 'defekt';
@@ -391,15 +567,18 @@ app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
     } else if (rueckgabe_zustand === 'reparatur') {
       neuerStatus = 'reparatur';
     }
-    
+
     await client.query(
       'UPDATE werkzeuge SET status = $1, zustand = $2 WHERE id = $3',
       [neuerStatus, rueckgabe_zustand, result.rows[0].werkzeug_id]
     );
-    
+
+    if (neuerStatus === 'verfuegbar') {
+      await refreshToolStatus(client, result.rows[0].werkzeug_id);
+    }
+
     await client.query('COMMIT');
     res.json(result.rows[0]);
-    
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
@@ -408,33 +587,28 @@ app.patch('/api/ausleihen/:id/rueckgabe', async (req, res) => {
   }
 });
 
-// Ausleihe löschen
 app.delete('/api/ausleihen/:id', async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { id } = req.params;
-    
+
     await client.query('BEGIN');
-    
-    // Ausleihe abrufen
+
     const ausleiheResult = await client.query('SELECT werkzeug_id FROM ausleihen WHERE id = $1', [id]);
-    
+
     if (ausleiheResult.rows.length === 0) {
       throw new Error('Ausleihe nicht gefunden');
     }
-    
+
     const werkzeugId = ausleiheResult.rows[0].werkzeug_id;
-    
-    // Ausleihe löschen
+
     await client.query('DELETE FROM ausleihen WHERE id = $1', [id]);
-    
-    // Werkzeug wieder verfügbar machen
-    await client.query('UPDATE werkzeuge SET status = $1 WHERE id = $2', ['verfuegbar', werkzeugId]);
-    
+
+    await refreshToolStatus(client, werkzeugId);
+
     await client.query('COMMIT');
     res.json({ message: 'Ausleihe gelöscht' });
-    
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
@@ -445,25 +619,24 @@ app.delete('/api/ausleihen/:id', async (req, res) => {
 
 // ==================== SCHÄDEN ====================
 
-// Alle Schäden abrufen
 app.get('/api/schaeden', async (req, res) => {
   try {
     const { status } = req.query;
-    
+
     let query = `
       SELECT s.*, w.name as werkzeug_name, w.inventarnummer, w.icon
       FROM schaeden s
       JOIN werkzeuge w ON s.werkzeug_id = w.id
     `;
     const params = [];
-    
+
     if (status) {
       params.push(status);
       query += ` WHERE s.status = $${params.length}`;
     }
-    
+
     query += ' ORDER BY s.gemeldet_am DESC';
-    
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
@@ -471,31 +644,27 @@ app.get('/api/schaeden', async (req, res) => {
   }
 });
 
-// Schaden melden
 app.post('/api/schaeden', async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { werkzeug_id, mitarbeiter_name, beschreibung, foto } = req.body;
-    
+
     await client.query('BEGIN');
-    
-    // Schaden erstellen
+
     const result = await client.query(`
       INSERT INTO schaeden (werkzeug_id, mitarbeiter_name, beschreibung, foto)
       VALUES ($1, $2, $3, $4)
       RETURNING *
     `, [werkzeug_id, mitarbeiter_name, beschreibung, foto]);
-    
-    // Werkzeug als defekt markieren
+
     await client.query(
       'UPDATE werkzeuge SET status = $1 WHERE id = $2',
       ['defekt', werkzeug_id]
     );
-    
+
     await client.query('COMMIT');
     res.status(201).json(result.rows[0]);
-    
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
@@ -504,36 +673,29 @@ app.post('/api/schaeden', async (req, res) => {
   }
 });
 
-// Schaden beheben
 app.patch('/api/schaeden/:id/beheben', async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { id } = req.params;
-    
+
     await client.query('BEGIN');
-    
-    // Schaden aktualisieren
+
     const result = await client.query(`
-      UPDATE schaeden 
+      UPDATE schaeden
       SET status = 'behoben'
       WHERE id = $1
       RETURNING *
     `, [id]);
-    
+
     if (result.rows.length === 0) {
       throw new Error('Schaden nicht gefunden');
     }
-    
-    // Werkzeug wieder verfügbar machen
-    await client.query(
-      'UPDATE werkzeuge SET status = $1 WHERE id = $2',
-      ['verfuegbar', result.rows[0].werkzeug_id]
-    );
-    
+
+    await refreshToolStatus(client, result.rows[0].werkzeug_id);
+
     await client.query('COMMIT');
     res.json(result.rows[0]);
-    
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });
@@ -542,16 +704,15 @@ app.patch('/api/schaeden/:id/beheben', async (req, res) => {
   }
 });
 
-// Schaden löschen
 app.delete('/api/schaeden/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query('DELETE FROM schaeden WHERE id = $1 RETURNING *', [id]);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Schaden nicht gefunden' });
     }
-    
+
     res.json({ message: 'Schaden gelöscht', data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -560,11 +721,10 @@ app.delete('/api/schaeden/:id', async (req, res) => {
 
 // ==================== STATISTIKEN ====================
 
-// Dashboard-Statistiken
 app.get('/api/stats', async (req, res) => {
   try {
     const stats = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(*) FILTER (WHERE status = 'verfuegbar') as verfuegbar,
         COUNT(*) FILTER (WHERE status = 'reserviert') as reserviert,
         COUNT(*) FILTER (WHERE status = 'ausgeliehen') as ausgeliehen,
@@ -572,22 +732,21 @@ app.get('/api/stats', async (req, res) => {
         COUNT(*) as gesamt
       FROM werkzeuge
     `);
-    
+
     const ausleihenStats = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(*) FILTER (WHERE status = 'reserviert') as reserviert,
         COUNT(*) FILTER (WHERE status = 'ausgeliehen') as ausgeliehen,
         COUNT(*) FILTER (WHERE datum_bis < CURRENT_DATE AND status = 'ausgeliehen') as ueberfaellig
       FROM ausleihen
     `);
-    
+
     const schadenStats = await pool.query(`
       SELECT COUNT(*) as offen
       FROM schaeden
       WHERE status = 'offen'
     `);
-    
-    // Top 5 Werkzeuge
+
     const topWerkzeuge = await pool.query(`
       SELECT w.name, w.icon, COUNT(a.id) as anzahl_ausleihen
       FROM werkzeuge w
@@ -596,7 +755,7 @@ app.get('/api/stats', async (req, res) => {
       ORDER BY anzahl_ausleihen DESC
       LIMIT 5
     `);
-    
+
     res.json({
       werkzeuge: stats.rows[0],
       ausleihen: ausleihenStats.rows[0],
@@ -613,37 +772,20 @@ app.get('/api/stats', async (req, res) => {
 app.get('/api/export/werkzeuge', async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM werkzeuge ORDER BY name');
-    
+
     let csv = 'Werkzeug,Beschreibung,Zustand,Inventarnummer,Kategorie,Lagerplatz,Status\n';
     result.rows.forEach(w => {
       csv += `"${w.name}","${w.beschreibung || ''}","${w.zustand || ''}","${w.inventarnummer}","${w.kategorie || ''}","${w.lagerplatz || ''}","${w.status}"\n`;
     });
-    
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+
+    res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=werkzeuge.csv');
-    res.send('\uFEFF' + csv); // UTF-8 BOM
+    res.send(csv);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Server starten
 app.listen(PORT, () => {
   console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
-  console.log(`📊 Health Check: http://localhost:${PORT}/api/health`);
-});
-
-// Fallback: wenn eine /api/*-Route nicht gefunden wurde, gib JSON zurück (statt HTML)
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'API route not found', path: req.originalUrl });
-});
-
-// Root quick-check
-app.get('/', (req, res) => res.send('ToolHub Backend (running)'));
-
-// Graceful Shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM empfangen, fahre Server herunter...');
-  await pool.end();
-  process.exit(0);
 });

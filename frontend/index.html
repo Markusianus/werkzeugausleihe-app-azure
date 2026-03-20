@@ -4,30 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ToolHub</title>
-
-    <!-- Environment Variables aus Azure App Settings
-         In production (Azure App Service) setzen wir API_URL als App Setting.
-         Beim Deploy per ZIP/Local-Git erzeugt CI/Deploy-Skript eine minimalen
-         `config.js` (nur `window.API_URL = 'https://...';`) in `frontend/`.
-         Lokalentwicklung: erstelle eine `.env.frontend` mit API_URL und lade
-         sie mit deinem lokalen dev-Server oder setze window.API_URL manuell.
-    -->
-    <!-- Load runtime config (generated at deploy time or present in repo for local dev) -->
     <script src="config.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #9333ea 0%, #1a1a1a 100%);
             min-height: 100vh;
             padding: 20px;
+            color: #111827;
         }
-        
+
         .container {
             max-width: 1400px;
             margin: 0 auto;
@@ -36,7 +24,7 @@
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             overflow: hidden;
         }
-        
+
         .header {
             background: linear-gradient(135deg, #7c3aed 0%, #000000 100%);
             color: white;
@@ -44,211 +32,147 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 16px;
         }
-        
-        .header h1 {
-            font-size: 1.8em;
-        }
-        
-        .mode-toggle {
-            display: flex;
-            gap: 10px;
-        }
-        
+
+        .header h1 { font-size: 1.8em; }
+        .mode-toggle { display: flex; gap: 10px; }
+
         button {
             padding: 8px 16px;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: bold;
-            transition: all 0.3s;
+            transition: all 0.2s;
             font-size: 0.9em;
         }
-        
+
         button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            transform: translateY(-1px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
         }
-        
+
         button:disabled {
             opacity: 0.5;
             cursor: not-allowed;
             transform: none;
+            box-shadow: none;
         }
-        
-        .btn-primary {
-            background: #9333ea;
-            color: white;
-        }
-        
-        .btn-secondary {
-            background: #4b5563;
-            color: white;
-        }
-        
-        .btn-success {
-            background: #4caf50;
-            color: white;
-        }
-        
-        .btn-danger {
-            background: #f44336;
-            color: white;
-        }
-        
-        .btn-warning {
-            background: #7dd3fc;
-            color: #0f172a;
-        }
-        
-        .btn-small {
-            padding: 5px 10px;
-            font-size: 0.85em;
-        }
-        
-        .content {
-            padding: 20px 30px;
-        }
-        
+
+        .btn-primary { background: #9333ea; color: white; }
+        .btn-secondary { background: #4b5563; color: white; }
+        .btn-success { background: #16a34a; color: white; }
+        .btn-danger { background: #dc2626; color: white; }
+        .btn-warning { background: #7dd3fc; color: #0f172a; }
+        .btn-small { padding: 5px 10px; font-size: 0.85em; }
+
+        .content { padding: 20px 30px 40px; }
+
         .dashboard {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 15px;
             margin-bottom: 25px;
         }
-        
+
         .dashboard-card {
             background: linear-gradient(135deg, #7c3aed 0%, #1f2937 100%);
             color: white;
             padding: 20px;
-            border-radius: 10px;
+            border-radius: 12px;
             text-align: center;
         }
-        
-        .dashboard-card h3 {
-            font-size: 2em;
-            margin-bottom: 5px;
-        }
-        
-        .dashboard-card p {
-            font-size: 0.9em;
-            opacity: 0.9;
-        }
-        
-        .dashboard-card.alert {
-            background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
-        }
-        
-        .search-bar {
-            margin-bottom: 15px;
+
+        .dashboard-card h3 { font-size: 2em; margin-bottom: 5px; }
+        .dashboard-card p { font-size: 0.9em; opacity: 0.9; }
+        .dashboard-card.alert { background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); }
+
+        .search-bar, .toolbar, .filter-bar {
             display: flex;
             gap: 10px;
+            flex-wrap: wrap;
         }
-        
+
+        .search-bar { margin-bottom: 15px; }
+        .toolbar { margin-bottom: 15px; }
+        .filter-bar { margin-bottom: 15px; }
+
         input[type="text"],
         input[type="password"],
         input[type="date"],
         textarea,
         select {
-            padding: 8px;
-            border: 2px solid #e0e0e0;
-            border-radius: 5px;
+            padding: 10px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
             font-size: 0.95em;
+            min-height: 42px;
         }
-        
-        input[type="text"],
-        select {
-            flex: 1;
-        }
-        
+
+        input[type="text"], select { flex: 1; }
+        textarea { width: 100%; resize: vertical; }
+
         table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
-            font-size: 0.9em;
+            font-size: 0.92em;
+            overflow: hidden;
+            border-radius: 12px;
         }
-        
+
         table th {
-            background: #f5f5f5;
-            padding: 10px;
+            background: #f5f3ff;
+            padding: 12px 10px;
             text-align: left;
-            border-bottom: 2px solid #ddd;
+            border-bottom: 2px solid #ddd6fe;
             font-weight: bold;
-            color: #333;
+            color: #4c1d95;
         }
-        
+
         table td {
-            padding: 10px;
+            padding: 12px 10px;
             border-bottom: 1px solid #eee;
             vertical-align: middle;
         }
-        
-        table tr:hover {
-            background: #f9f9f9;
-        }
-        
-        table tr.overdue {
-            background: #ffebee;
-        }
-        
-        table tr.overdue:hover {
-            background: #ffcdd2;
-        }
-        
-        .badge {
+
+        table tr:hover { background: #faf5ff; }
+        table tr.overdue { background: #ffebee; }
+        table tr.overdue:hover { background: #ffcdd2; }
+
+        .badge, .status-badge {
             display: inline-block;
             padding: 4px 8px;
-            border-radius: 3px;
+            border-radius: 999px;
             font-size: 0.8em;
             font-weight: bold;
         }
-        
-        .badge-available {
-            background: #4caf50;
-            color: white;
-        }
-        
-        .badge-reserved {
-            background: #ff9800;
-            color: white;
-        }
-        
-        .badge-ausgeliehen {
-            background: #f44336;
-            color: white;
-        }
-        
-        .badge-returned {
-            background: #9e9e9e;
-            color: white;
-        }
-        
-        .badge-overdue {
-            background: #d32f2f;
-            color: white;
-            animation: pulse 2s infinite;
-        }
-        
-        .badge-defekt {
-            background: #424242;
-            color: white;
-        }
-        
+
+        .badge-available, .status-verfuegbar { background: #dcfce7; color: #166534; }
+        .badge-reserved, .status-reserviert { background: #ffedd5; color: #9a3412; }
+        .badge-ausgeliehen, .status-ausgeliehen { background: #fee2e2; color: #991b1b; }
+        .badge-returned { background: #e5e7eb; color: #374151; }
+        .badge-overdue { background: #d32f2f; color: white; animation: pulse 2s infinite; }
+        .badge-defekt, .status-defekt { background: #111827; color: white; }
+        .status-reinigung { background: #dbeafe; color: #1d4ed8; }
+        .status-reparatur { background: #ede9fe; color: #6d28d9; }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
-        
+
         .kategorie-badge {
             display: inline-block;
             padding: 3px 8px;
-            border-radius: 3px;
+            border-radius: 999px;
             font-size: 0.75em;
             background: #e9d5ff;
             color: #7c3aed;
             margin-right: 5px;
         }
-        
+
         .warenkorb {
             position: fixed;
             bottom: 20px;
@@ -261,13 +185,9 @@
             cursor: pointer;
             font-weight: bold;
             font-size: 1em;
-            transition: all 0.3s;
+            z-index: 20;
         }
-        
-        .warenkorb:hover {
-            transform: scale(1.05);
-        }
-        
+
         .modal {
             display: none;
             position: fixed;
@@ -280,153 +200,71 @@
             align-items: center;
             justify-content: center;
             overflow-y: auto;
+            padding: 20px;
         }
-        
-        .modal.active {
-            display: flex;
-        }
-        
+
+        .modal.active { display: flex; }
+
         .modal-content {
             background: white;
             padding: 25px;
             border-radius: 15px;
-            max-width: 600px;
-            width: 90%;
-            max-height: 80vh;
+            max-width: 680px;
+            width: 100%;
+            max-height: 85vh;
             overflow-y: auto;
             margin: 20px;
         }
-        
-        .modal-content h2 {
-            margin-bottom: 15px;
-            color: #9333ea;
-            font-size: 1.5em;
-        }
-        
-        .form-group {
+
+        .modal-content h2, .modal-content h3, .section h2, .section h3 {
             margin-bottom: 12px;
+            color: #7c3aed;
         }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-            color: #333;
-            font-size: 0.9em;
-        }
-        
-        .section {
-            margin-top: 30px;
-        }
-        
-        .section h2, .section h3 {
-            font-size: 1.3em;
-            margin-bottom: 10px;
-            color: #9333ea;
-        }
-        
-        .hidden {
-            display: none;
-        }
-        
-        .loading {
-            text-align: center;
-            padding: 40px;
-            font-size: 1.3em;
-            color: #9333ea;
-        }
-        
+
+        .section { margin-top: 30px; }
+        .hidden { display: none; }
+        .loading { text-align: center; padding: 40px; font-size: 1.1em; color: #9333ea; }
+
         .error {
             background: #ffebee;
             border: 2px solid #f44336;
             color: #c62828;
             padding: 12px;
-            border-radius: 5px;
+            border-radius: 8px;
             margin: 15px 0;
         }
-        
+
         .info {
             background: #f3e8ff;
             border: 2px solid #9333ea;
             color: #6b21a8;
             padding: 12px;
-            border-radius: 5px;
+            border-radius: 8px;
             margin: 15px 0;
-            text-align: center;
-            font-size: 0.9em;
+            font-size: 0.92em;
         }
-        
-        .success-toast {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #4caf50;
-            color: white;
-            padding: 15px 25px;
-            border-radius: 10px;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
-            font-weight: bold;
-            z-index: 2000;
-            animation: slideIn 0.3s ease-out;
-        }
-        
-        @keyframes slideIn {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-        
+
         .empty-state {
             text-align: center;
             padding: 40px;
-            color: #999;
+            color: #6b7280;
         }
-        
-        .empty-state-icon {
-            font-size: 3em;
-            margin-bottom: 15px;
-        }
-        
+
+        .empty-state-icon { font-size: 3em; margin-bottom: 15px; }
+
         .file-input-label {
             display: inline-block;
             padding: 8px 16px;
             background: #9333ea;
             color: white;
-            border-radius: 5px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: bold;
             font-size: 0.9em;
         }
-        
-        input[type="file"] {
-            display: none;
-        }
-        
-        .toolbar {
-            margin-bottom: 15px;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        
-        .filter-bar {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-        
-        .filter-bar select,
-        .filter-bar input {
-            flex: 1;
-            min-width: 150px;
-        }
-        
+
+        input[type="file"] { display: none; }
+
         .history-item {
             padding: 8px;
             border-left: 3px solid #9333ea;
@@ -434,53 +272,42 @@
             background: #f9f9f9;
             font-size: 0.85em;
         }
-        
-        .history-item strong {
-            color: #9333ea;
-        }
-        
+
         .werkzeug-foto {
             width: 60px;
             height: 60px;
             object-fit: cover;
             border-radius: 5px;
         }
-        
-        .date-inputs {
+
+        .date-inputs,
+        .form-row {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 10px;
         }
-        
+
+        .form-group { margin-bottom: 12px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+            font-size: 0.9em;
+        }
+
         .foto-preview-container {
             position: relative;
             display: inline-block;
             margin-top: 10px;
         }
-        
+
         .foto-preview-container img {
             max-width: 200px;
             border-radius: 5px;
             display: block;
         }
-        
-        .foto-remove-btn {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: #f44336;
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 30px;
-            height: 30px;
-            cursor: pointer;
-            font-size: 1.2em;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
+
         .qr-code-container {
             text-align: center;
             padding: 20px;
@@ -488,11 +315,7 @@
             border-radius: 10px;
             margin-top: 10px;
         }
-        
-        .qr-code-container canvas {
-            margin: 0 auto;
-        }
-        
+
         .damage-report {
             background: #fff3e0;
             border-left: 4px solid #ff9800;
@@ -500,51 +323,218 @@
             margin-bottom: 10px;
             border-radius: 5px;
         }
-        
-        .damage-report strong {
-            color: #e65100;
-        }
-        
-        /* Buchungskalender */
-        .kalender-wrapper {
-            overflow-x: auto;
-            border: 1px solid #ddd;
-            border-radius: 5px;
+
+        .werkzeug-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 18px;
             background: white;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
-        
+
+        .werkzeug-card img {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            border-radius: 10px;
+            background: #f3f4f6;
+        }
+
+        .werkzeug-icon { font-size: 2rem; }
+        .werkzeug-info h3 { margin-bottom: 6px; }
+        .werkzeug-info p { color: #4b5563; line-height: 1.45; }
+        .werkzeug-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+            color: #6b7280;
+            font-size: 0.9em;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #111827;
+            color: white;
+            padding: 14px 18px;
+            border-radius: 10px;
+            opacity: 0;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 2000;
+            box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Buchungskalender */
+        .kalender-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            background: white;
+            overflow: hidden;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+        }
+
+        .kalender-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 18px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            background: linear-gradient(135deg, #faf5ff 0%, #f8fafc 100%);
+            flex-wrap: wrap;
+        }
+
+        .kalender-summary {
+            color: #6b7280;
+            font-size: 0.92em;
+            margin-top: 4px;
+        }
+
+        .kalender-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            padding: 14px 20px 0;
+            color: #4b5563;
+            font-size: 0.88em;
+        }
+
+        .legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+
+        .legend-color.frei { background: #f8fafc; }
+        .legend-color.reserviert { background: #fdba74; }
+        .legend-color.ausgeliehen { background: #f87171; }
+        .legend-color.heute { background: #c4b5fd; }
+
+        .kalender-wrapper {
+            overflow: auto;
+            max-width: 100%;
+            padding: 16px 20px 20px;
+        }
+
         .kalender-table {
             width: 100%;
-            border-collapse: collapse;
-            min-width: 1000px;
+            border-collapse: separate;
+            border-spacing: 0;
+            min-width: 1200px;
+            margin-top: 0;
         }
-        
-        .kalender-table th {
-            background: #7c3aed;
-            color: white;
-            padding: 12px 8px;
+
+        .kalender-table th,
+        .kalender-table td {
+            border: 1px solid #ede9fe;
+            padding: 0;
             text-align: center;
-            border: 1px solid #6b21a8;
-            font-size: 0.85em;
-            font-weight: bold;
+        }
+
+        .kalender-table th {
             position: sticky;
             top: 0;
-            z-index: 100;
+            z-index: 2;
+            background: #7c3aed;
+            color: white;
+            font-size: 0.82em;
         }
-        
+
+        .kalender-table th:first-child,
+        .kalender-tool-cell {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            background: white;
+        }
+
         .kalender-table th:first-child {
+            z-index: 3;
+            min-width: 260px;
+            max-width: 260px;
+            padding: 12px;
             text-align: left;
-            min-width: 180px;
-            max-width: 180px;
         }
 
-    </style>
+        .kalender-date span {
+            display: block;
+            font-weight: 700;
+        }
 
-        <!-- Minimal page structure required by main.js -->
-        <!-- Note: When deployed to Azure App Service the runtime `config.js` is
-            generated by the Express server at /config.js from the API_URL
-            App Setting. For local dev keep `config.js` in repo or use the
-            provided .env and a dev server. -->
+        .kalender-date small {
+            display: block;
+            font-size: 0.82em;
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+
+        .kalender-date.weekend { background: #6d28d9; }
+
+        .kalender-tool-cell {
+            min-width: 260px;
+            max-width: 260px;
+            text-align: left;
+            padding: 12px 14px;
+            border-right-width: 2px;
+        }
+
+        .kalender-tool-name {
+            font-weight: 700;
+            color: #111827;
+        }
+
+        .kalender-tool-meta,
+        .kalender-tool-subline {
+            font-size: 0.82em;
+            color: #6b7280;
+            margin-top: 4px;
+        }
+
+        .kalender-cell {
+            width: 34px;
+            min-width: 34px;
+            height: 38px;
+            background: #ffffff;
+            font-size: 0.82em;
+            color: #fff;
+        }
+
+        .kalender-cell.is-free { background: #f8fafc; }
+        .kalender-cell.is-today { box-shadow: inset 0 0 0 2px #8b5cf6; }
+        .kalender-cell.is-reserviert { background: #fdba74; color: #7c2d12; font-weight: 700; }
+        .kalender-cell.is-ausgeliehen { background: #f87171; color: #7f1d1d; font-weight: 700; }
+        .kalender-cell.booking-start { border-left: 3px solid #6b21a8; }
+        .kalender-cell.booking-end { border-right: 3px solid #6b21a8; }
+
+        @media (max-width: 900px) {
+            body { padding: 10px; }
+            .content { padding: 18px; }
+            .date-inputs, .form-row { grid-template-columns: 1fr; }
+            .header { padding: 18px; }
+            .kalender-header { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
     <div class="container">
         <header class="header">
             <h1>ToolHub</h1>
@@ -559,14 +549,13 @@
                 <section class="section">
                     <h2>Werkzeuge finden</h2>
                     <div class="toolbar">
-                        <div class="search-bar">
+                        <div class="search-bar" style="width:100%;">
                             <input type="text" id="searchInput" placeholder="Suche..." oninput="filterWerkzeuge()">
                             <select id="kategorieFilter" onchange="filterWerkzeuge()">
                                 <option value="">Alle Kategorien</option>
                             </select>
                         </div>
                     </div>
-
                     <div id="werkzeugeList" class="dashboard"></div>
                 </section>
 
@@ -590,46 +579,41 @@
                 <section class="section">
                     <h2>Admin Dashboard</h2>
                     <div class="dashboard">
-                        <div class="dashboard-card">
-                            <h3 id="statGesamt">-</h3>
-                            <p>Gesamt Werkzeuge</p>
-                        </div>
-                        <div class="dashboard-card">
-                            <h3 id="statVerfuegbar">-</h3>
-                            <p>Verfügbar</p>
-                        </div>
-                        <div class="dashboard-card">
-                            <h3 id="statReserviert">-</h3>
-                            <p>Werkzeuge reserviert</p>
-                        </div>
-                        <div class="dashboard-card">
-                            <h3 id="statAusgeliehen">-</h3>
-                            <p>Werkzeuge ausgeliehen</p>
-                        </div>
-                        <div class="dashboard-card">
-                            <h3 id="statDefekt">-</h3>
-                            <p>Defekt</p>
-                        </div>
-                        <div class="dashboard-card">
-                            <h3 id="statAusleihenReserviert">-</h3>
-                            <p>Ausleihen reserviert</p>
-                        </div>
-                        <div class="dashboard-card">
-                            <h3 id="statAusleihenAusgeliehen">-</h3>
-                            <p>Ausleihen aktiv</p>
-                        </div>
-                        <div class="dashboard-card alert">
-                            <h3 id="statAusleihenUeberfaellig">-</h3>
-                            <p>Überfällige Ausleihen</p>
-                        </div>
-                        <div class="dashboard-card alert">
-                            <h3 id="statSchaeden">-</h3>
-                            <p>Offene Schäden</p>
-                        </div>
+                        <div class="dashboard-card"><h3 id="statGesamt">-</h3><p>Gesamt Werkzeuge</p></div>
+                        <div class="dashboard-card"><h3 id="statVerfuegbar">-</h3><p>Verfügbar</p></div>
+                        <div class="dashboard-card"><h3 id="statReserviert">-</h3><p>Werkzeuge reserviert</p></div>
+                        <div class="dashboard-card"><h3 id="statAusgeliehen">-</h3><p>Werkzeuge ausgeliehen</p></div>
+                        <div class="dashboard-card"><h3 id="statDefekt">-</h3><p>Defekt</p></div>
+                        <div class="dashboard-card"><h3 id="statAusleihenReserviert">-</h3><p>Ausleihen reserviert</p></div>
+                        <div class="dashboard-card"><h3 id="statAusleihenAusgeliehen">-</h3><p>Ausleihen aktiv</p></div>
+                        <div class="dashboard-card alert"><h3 id="statAusleihenUeberfaellig">-</h3><p>Überfällige Ausleihen</p></div>
+                        <div class="dashboard-card alert"><h3 id="statSchaeden">-</h3><p>Offene Schäden</p></div>
                     </div>
                     <div>
                         <h3>Top Werkzeuge</h3>
                         <ul id="topWerkzeugeList"></ul>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <div class="kalender-card">
+                        <div class="kalender-header">
+                            <div>
+                                <h3>Buchungskalender</h3>
+                                <p class="kalender-summary" id="kalenderSummary">4-Wochen-Ansicht wird geladen…</p>
+                            </div>
+                            <div class="toolbar" style="margin-bottom:0; justify-content:flex-end;">
+                                <input type="date" id="kalenderStart">
+                                <select id="kalenderKategorieFilter">
+                                    <option value="">Alle Kategorien</option>
+                                </select>
+                                <button class="btn-secondary btn-small" onclick="shiftKalender(-7)">← 1 Woche</button>
+                                <button class="btn-secondary btn-small" onclick="resetKalenderHeute()">Heute</button>
+                                <button class="btn-secondary btn-small" onclick="shiftKalender(7)">1 Woche →</button>
+                                <button class="btn-primary btn-small" onclick="loadKalender()">Aktualisieren</button>
+                            </div>
+                        </div>
+                        <div id="kalenderContainer"></div>
                     </div>
                 </section>
 
@@ -666,11 +650,8 @@
             </div>
         </main>
 
-        <button class="warenkorb" onclick="showWarenkorb()">
-            Warenkorb <span id="warenkorbBadge">0</span>
-        </button>
+        <button class="warenkorb" onclick="showWarenkorb()">Warenkorb <span id="warenkorbBadge">0</span></button>
 
-        <!-- Modals -->
         <div id="warenkorbModal" class="modal">
             <div class="modal-content">
                 <div id="warenkorbContent"></div>
@@ -692,8 +673,7 @@
                 <button class="btn-secondary" onclick="closeModal('toolDetailModal')">Schließen</button>
             </div>
         </div>
-        
-        <!-- Schaden melden Modal -->
+
         <div id="schadenModal" class="modal">
             <div class="modal-content">
                 <h2>Schaden melden</h2>
@@ -718,28 +698,15 @@
             </div>
         </div>
 
-        <!-- Werkzeuge (Admin) Modal -->
         <div id="werkzeugModal" class="modal">
             <div class="modal-content">
                 <h2 id="werkzeugModalTitle">Werkzeug</h2>
                 <form id="werkzeugForm">
                     <input type="hidden" id="werkzeugId">
-                    <div class="form-group">
-                        <label for="werkzeugName">Name</label>
-                        <input type="text" id="werkzeugName" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="werkzeugIcon">Icon (Emoji)</label>
-                        <input type="text" id="werkzeugIcon">
-                    </div>
-                    <div class="form-group">
-                        <label for="werkzeugBeschreibung">Beschreibung</label>
-                        <textarea id="werkzeugBeschreibung" rows="3"></textarea>
-                    </div>
-                    <div class="form-group">
-                        <label for="werkzeugInventarnummer">Inventarnummer</label>
-                        <input type="text" id="werkzeugInventarnummer">
-                    </div>
+                    <div class="form-group"><label for="werkzeugName">Name</label><input type="text" id="werkzeugName" required></div>
+                    <div class="form-group"><label for="werkzeugIcon">Icon (Emoji)</label><input type="text" id="werkzeugIcon"></div>
+                    <div class="form-group"><label for="werkzeugBeschreibung">Beschreibung</label><textarea id="werkzeugBeschreibung" rows="3"></textarea></div>
+                    <div class="form-group"><label for="werkzeugInventarnummer">Inventarnummer</label><input type="text" id="werkzeugInventarnummer"></div>
                     <div class="form-group">
                         <label for="werkzeugStatus">Status</label>
                         <select id="werkzeugStatus">
@@ -751,18 +718,9 @@
                             <option value="reparatur">Reparatur</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label for="werkzeugZustand">Zustand</label>
-                        <input type="text" id="werkzeugZustand">
-                    </div>
-                    <div class="form-group">
-                        <label for="werkzeugKategorie">Kategorie</label>
-                        <input type="text" id="werkzeugKategorie">
-                    </div>
-                    <div class="form-group">
-                        <label for="werkzeugLagerplatz">Lagerplatz</label>
-                        <input type="text" id="werkzeugLagerplatz">
-                    </div>
+                    <div class="form-group"><label for="werkzeugZustand">Zustand</label><input type="text" id="werkzeugZustand"></div>
+                    <div class="form-group"><label for="werkzeugKategorie">Kategorie</label><input type="text" id="werkzeugKategorie"></div>
+                    <div class="form-group"><label for="werkzeugLagerplatz">Lagerplatz</label><input type="text" id="werkzeugLagerplatz"></div>
                     <div class="form-group">
                         <label class="file-input-label" for="werkzeugFoto">Foto</label>
                         <input type="file" id="werkzeugFoto" accept="image/*" onchange="previewWerkzeugFoto(this)">
@@ -774,7 +732,6 @@
             </div>
         </div>
 
-        <!-- Rückgabe Modal -->
         <div id="rueckgabeModal" class="modal">
             <div class="modal-content">
                 <h2>Rückgabe</h2>
@@ -785,6 +742,8 @@
                         <select id="rueckgabeZustand">
                             <option value="ok">OK</option>
                             <option value="defekt">Defekt</option>
+                            <option value="reinigung">Reinigung</option>
+                            <option value="reparatur">Reparatur</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -797,7 +756,6 @@
             </div>
         </div>
 
-        <!-- Import/Export Modal -->
         <div id="importModal" class="modal">
             <div class="modal-content">
                 <h2>Import / Export</h2>
@@ -811,24 +769,9 @@
                 </div>
             </div>
         </div>
-
-        <!-- Hidden tables / lists for Admin sections (placeholders) -->
-        <div style="display:none;">
-            <table id="ausleihenTable"></table>
-            <table id="schaedenTable"></table>
-        </div>
     </div>
 
-    <!-- QRCode library (qrcodejs) loaded from cdnjs.cloudflare.com:
-                 - Stellt die globale `QRCode`-API bereit, die im Frontend verwendet wird,
-                     um QR-Codes im Browser zu generieren (siehe `.qr-code-container`).
-                 - Die Bibliothek MUSS vor `main.js` geladen werden, damit `main.js`
-                     `new QRCode(...)` verwenden kann.
-                 - Best Practices für Produktion: Pin die genaue Version, füge Subresource
-                     Integrity (SRI) und `crossorigin="anonymous"` hinzu oder bundle die
-                     Bibliothek lokal, um Verfügbarkeit und Sicherheit zu erhöhen.
-        -->
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-        <script src="main.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="main.js"></script>
 </body>
 </html>

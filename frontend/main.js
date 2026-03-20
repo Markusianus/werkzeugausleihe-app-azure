@@ -5,11 +5,16 @@ let currentMode = 'mitarbeiter';
 let warenkorb = [];
 let isAdmin = false;
 let gespeicherterMitarbeiterName = localStorage.getItem('mitarbeiterName') || '';
+let kalenderKategorien = [];
+let kalenderState = {
+    startDate: toIsoDate(new Date()),
+    days: 28,
+    kategorie: ''
+};
 
 // ==================== Initialization ====================
 
 async function initApp() {
-    // Prüfen ob Admin-Token noch gültig ist
     const adminToken = localStorage.getItem('adminToken');
     if (adminToken) {
         try {
@@ -25,9 +30,7 @@ async function initApp() {
         }
     }
 
-    // Initial mode setzen
     switchMode(currentMode);
-
     setMitarbeiterName(gespeicherterMitarbeiterName);
 }
 
@@ -42,7 +45,6 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
-
 async function apiCall(endpoint, options = {}) {
     const defaultOptions = {
         headers: {
@@ -51,7 +53,6 @@ async function apiCall(endpoint, options = {}) {
         ...options
     };
 
-    // Admin-Token hinzufügen falls vorhanden
     const adminToken = localStorage.getItem('adminToken');
     if (adminToken) {
         defaultOptions.headers.Authorization = `Bearer ${adminToken}`;
@@ -65,7 +66,6 @@ async function apiCall(endpoint, options = {}) {
             throw new Error(error.error || `HTTP ${response.status}`);
         }
 
-        // Bei 204 No Content kein JSON parsen
         if (response.status === 204) {
             return null;
         }
@@ -78,17 +78,11 @@ async function apiCall(endpoint, options = {}) {
 }
 
 function buildApiUrl(endpoint) {
-    // Use window.API_URL when available, otherwise fallback to current origin
     const base = (window.API_URL && (window.API_URL + '').replace(/\/$/, '')) || window.location.origin;
     const rawBase = base.replace(/\/$/, '');
 
-    // If endpoint already starts with /api, append directly
     if (endpoint.startsWith('/api')) return rawBase + endpoint;
-
-    // If rawBase already contains /api at end, just join
     if (rawBase.endsWith('/api')) return rawBase + endpoint;
-
-    // Otherwise insert /api
     return rawBase + '/api' + endpoint;
 }
 
@@ -96,7 +90,7 @@ function buildApiUrl(endpoint) {
 
 function switchMode(mode) {
     currentMode = mode;
-    
+
     if (mode === 'mitarbeiter') {
         document.getElementById('mitarbeiterMode').classList.remove('hidden');
         document.getElementById('adminMode').classList.add('hidden');
@@ -127,7 +121,7 @@ async function showAdminLogin() {
     try {
         const response = await apiCall('/admin/auth', {
             method: 'POST',
-            body: JSON.stringify({ password: password })
+            body: JSON.stringify({ password })
         });
 
         if (response.success) {
@@ -198,55 +192,72 @@ async function showWerkzeugDetail(id) {
 async function loadWerkzeuge(filter = {}) {
     try {
         let endpoint = '/werkzeuge?';
-        if (filter.kategorie) endpoint += `kategorie=${filter.kategorie}&`;
-        if (filter.search) endpoint += `search=${filter.search}&`;
-        
+        if (filter.kategorie) endpoint += `kategorie=${encodeURIComponent(filter.kategorie)}&`;
+        if (filter.search) endpoint += `search=${encodeURIComponent(filter.search)}&`;
+
         const werkzeuge = await apiCall(endpoint);
-        
         const container = document.getElementById('werkzeugeList');
         container.innerHTML = '';
-        
+
+        updateKategorieFilter(werkzeuge);
+
         if (werkzeuge.length === 0) {
             container.innerHTML = '<p style="text-align:center;padding:40px;">Keine Werkzeuge gefunden</p>';
             return;
         }
-        
+
         werkzeuge.forEach(w => {
             const card = document.createElement('div');
             card.className = 'werkzeug-card';
-            
+
             const isVerfuegbar = w.status === 'verfuegbar';
             const statusBadge = getStatusBadge(w.status);
-            
+
             card.innerHTML = `
-                ${w.foto ? `<img src="${w.foto}" alt="${w.name}">` : ''}
-                <div class="werkzeug-icon">${w.icon || '🔧'}</div>
+                ${w.foto ? `<img src="${w.foto}" alt="${escapeHtml(w.name)}">` : ''}
+                <div class="werkzeug-icon">${escapeHtml(w.icon || '🔧')}</div>
                 <div class="werkzeug-info">
-                    <h3>${w.name}</h3>
-                    <p>${w.beschreibung || ''}</p>
+                    <h3>${escapeHtml(w.name)}</h3>
+                    <p>${escapeHtml(w.beschreibung || '')}</p>
                     <div class="werkzeug-meta">
-                        <span>📦 ${w.inventarnummer}</span>
-                        ${w.kategorie ? `<span>🏷️ ${w.kategorie}</span>` : ''}
-                        ${w.lagerplatz ? `<span>📍 ${w.lagerplatz}</span>` : ''}
+                        <span>📦 ${escapeHtml(w.inventarnummer)}</span>
+                        ${w.kategorie ? `<span>🏷️ ${escapeHtml(w.kategorie)}</span>` : ''}
+                        ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
                     </div>
                     ${statusBadge}
                 </div>
                 <button class="btn-secondary" onclick="showWerkzeugDetail(${w.id})">ℹ️ Details</button>
-                <button 
-                    class="btn-primary" 
-                    onclick="addToWarenkorb(${w.id})" 
-                    ${!isVerfuegbar ? 'disabled' : ''}>
+                <button class="btn-primary" onclick="addToWarenkorb(${w.id})" ${!isVerfuegbar ? 'disabled' : ''}>
                     ${isVerfuegbar ? '➕ In den Warenkorb' : 'Nicht verfügbar'}
                 </button>
                 <button class="btn-warning btn-small" onclick="showSchadenMelden(${w.id})">🔧 Schaden melden</button>
             `;
-            
+
             container.appendChild(card);
         });
     } catch (err) {
         showToast('❌ Fehler beim Laden der Werkzeuge');
         console.error(err);
     }
+}
+
+function updateKategorieFilter(werkzeuge) {
+    const select = document.getElementById('kategorieFilter');
+    if (!select) return;
+
+    const aktuelleAuswahl = select.value;
+    const kategorien = Array.from(new Set(
+        (werkzeuge || []).map(w => (w.kategorie || '').trim()).filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b, 'de'));
+
+    select.innerHTML = '<option value="">Alle Kategorien</option>';
+    kategorien.forEach(kategorie => {
+        const option = document.createElement('option');
+        option.value = kategorie;
+        option.textContent = kategorie;
+        if (kategorie === aktuelleAuswahl) option.selected = true;
+        select.appendChild(option);
+    });
 }
 
 function getStatusBadge(status) {
@@ -258,7 +269,8 @@ function getStatusBadge(status) {
         'reinigung': '<span class="status-badge status-reinigung">🧹 In Reinigung</span>',
         'reparatur': '<span class="status-badge status-reparatur">🔧 In Reparatur</span>'
     };
-    return badges[status] || status;
+
+    return badges[status] || escapeHtml(status);
 }
 
 // ==================== Warenkorb ====================
@@ -282,22 +294,25 @@ async function showWarenkorb() {
         alert('Warenkorb ist leer!');
         return;
     }
-    
+
     try {
         const werkzeuge = await apiCall('/werkzeuge');
         const ausgewaehlte = werkzeuge.filter(w => warenkorb.includes(w.id));
-        
+
         let html = '<h3>Ausgewählte Werkzeuge:</h3><ul>';
         ausgewaehlte.forEach(w => {
-            html += `<li>${w.icon || '🔧'} ${w.name} (${w.inventarnummer}) 
+            html += `<li>${escapeHtml(w.icon || '🔧')} ${escapeHtml(w.name)} (${escapeHtml(w.inventarnummer)})
                      <button class="btn-danger btn-small" onclick="removeFromWarenkorb(${w.id})">❌</button></li>`;
         });
         html += '</ul>';
-        
+
         html += `
+            <div class="info" style="text-align:left; margin-top:16px;">
+                Reservierungen werden jetzt gegen bestehende Zeiträume geprüft. Nutze unten die Daten und prüfe bei Bedarf die Kalenderansicht im Admin-Bereich.
+            </div>
             <div class="form-group">
                 <label>Ihr Name *</label>
-                <input type="text" id="reservierungName" placeholder="Max Mustermann">
+                <input type="text" id="reservierungName" placeholder="Max Mustermann" value="${escapeHtml(gespeicherterMitarbeiterName)}">
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -312,9 +327,15 @@ async function showWarenkorb() {
             <button class="btn-success" onclick="submitReservierung()">✓ Reservieren</button>
             <button class="btn-secondary" onclick="closeModal('warenkorbModal')">Abbrechen</button>
         `;
-        
+
         document.getElementById('warenkorbContent').innerHTML = html;
         document.getElementById('warenkorbModal').classList.add('active');
+
+        const today = toIsoDate(new Date());
+        const vonInput = document.getElementById('reservierungVon');
+        const bisInput = document.getElementById('reservierungBis');
+        if (vonInput) vonInput.min = today;
+        if (bisInput) bisInput.min = today;
     } catch (err) {
         alert('Fehler beim Laden: ' + err.message);
     }
@@ -323,24 +344,24 @@ async function showWarenkorb() {
 function removeFromWarenkorb(werkzeugId) {
     warenkorb = warenkorb.filter(id => id !== werkzeugId);
     updateWarenkorbBadge();
-    showWarenkorb(); // Refresh
+    showWarenkorb();
 }
 
 async function submitReservierung() {
     const name = document.getElementById('reservierungName').value;
     const von = document.getElementById('reservierungVon').value;
     const bis = document.getElementById('reservierungBis').value;
-    
+
     if (!name || !von || !bis) {
         alert('Bitte alle Felder ausfüllen!');
         return;
     }
-    
+
     if (new Date(bis) <= new Date(von)) {
         alert('Das "Bis"-Datum muss nach dem "Von"-Datum liegen!');
         return;
     }
-    
+
     try {
         await apiCall('/ausleihen', {
             method: 'POST',
@@ -351,7 +372,7 @@ async function submitReservierung() {
                 datum_bis: bis
             })
         });
-        
+
         setMitarbeiterName(name);
         showToast('✓ Reservierung erfolgreich!');
         warenkorb = [];
@@ -359,11 +380,13 @@ async function submitReservierung() {
         closeModal('warenkorbModal');
         loadWerkzeuge();
         loadMeineAusleihen();
+        if (currentMode === 'admin') {
+            loadKalender();
+        }
     } catch (err) {
         alert('Fehler: ' + err.message);
     }
 }
-
 
 function normalizeMitarbeiterName(name) {
     return String(name || '').trim().replace(/\s+/g, ' ');
@@ -468,7 +491,7 @@ function previewSchadenFoto(input) {
     if (input.files && input.files[0]) {
         const reader = new FileReader();
         reader.onload = function(e) {
-            document.getElementById('schadenFotoPreview').innerHTML = 
+            document.getElementById('schadenFotoPreview').innerHTML =
                 `<img src="${e.target.result}" style="max-width:200px;margin-top:10px;">`;
         };
         reader.readAsDataURL(input.files[0]);
@@ -477,31 +500,32 @@ function previewSchadenFoto(input) {
 
 async function submitSchaden(event) {
     event.preventDefault();
-    
+
     const werkzeugId = document.getElementById('schadenWerkzeugId').value;
     const name = document.getElementById('schadenMitarbeiter').value;
     const beschreibung = document.getElementById('schadenBeschreibung').value;
-    
+
     let foto = null;
     const fotoInput = document.getElementById('schadenFoto');
     if (fotoInput.files && fotoInput.files[0]) {
         foto = await fileToBase64(fotoInput.files[0]);
     }
-    
+
     try {
         await apiCall('/schaeden', {
             method: 'POST',
             body: JSON.stringify({
                 werkzeug_id: werkzeugId,
                 mitarbeiter_name: name,
-                beschreibung: beschreibung,
-                foto: foto
+                beschreibung,
+                foto
             })
         });
-        
+
         showToast('✓ Schaden gemeldet!');
         closeModal('schadenModal');
         loadWerkzeuge();
+        if (currentMode === 'admin') loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
     }
@@ -511,9 +535,11 @@ async function submitSchaden(event) {
 
 async function loadDashboard() {
     try {
-        const stats = await apiCall('/stats');
-        
-        // Safely set dashboard stats only if elements exist
+        const [stats, werkzeuge] = await Promise.all([
+            apiCall('/stats'),
+            apiCall('/werkzeuge')
+        ]);
+
         const setStat = (id, value) => {
             const el = document.getElementById(id);
             if (el) el.textContent = (value !== undefined && value !== null) ? value : 0;
@@ -531,21 +557,25 @@ async function loadDashboard() {
 
         setStat('statSchaeden', stats.schaeden?.offen);
 
-        // Top 5 Werkzeuge (if container exists)
         const topList = document.getElementById('topWerkzeugeList');
         if (topList) {
             topList.innerHTML = '';
             (stats.top_werkzeuge || []).forEach((w, i) => {
                 const li = document.createElement('li');
-                li.innerHTML = `<span>${i + 1}. ${w.icon || '🔧'} ${w.name}</span> <span class="badge">${w.anzahl_ausleihen}x</span>`;
+                li.innerHTML = `<span>${i + 1}. ${escapeHtml(w.icon || '🔧')} ${escapeHtml(w.name)}</span> <span class="badge">${escapeHtml(w.anzahl_ausleihen)}x</span>`;
                 topList.appendChild(li);
             });
         }
-        
-        // Daten laden
-        loadAdminWerkzeuge();
+
+        kalenderKategorien = Array.from(new Set(
+            (werkzeuge || []).map(w => (w.kategorie || '').trim()).filter(Boolean)
+        )).sort((a, b) => a.localeCompare(b, 'de'));
+        renderKalenderKategorieFilter();
+
+        loadAdminWerkzeuge(werkzeuge);
         loadAusleihen();
         loadSchaeden();
+        loadKalender();
     } catch (err) {
         console.error('Fehler beim Laden der Stats:', err);
     }
@@ -553,24 +583,41 @@ async function loadDashboard() {
 
 // ==================== Admin Werkzeuge ====================
 
-async function loadAdminWerkzeuge() {
+async function loadAdminWerkzeuge(werkzeugeOverride = null) {
     try {
-        const werkzeuge = await apiCall('/werkzeuge');
-        
-        const tbody = document.getElementById('adminWerkzeugeTable');
-        tbody.innerHTML = '';
-        
+        const werkzeuge = werkzeugeOverride || await apiCall('/werkzeuge');
+
+        const table = document.getElementById('adminWerkzeugeTable');
+        if (!table) return;
+
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Icon</th>
+                    <th>Name</th>
+                    <th>Inventarnummer</th>
+                    <th>Kategorie</th>
+                    <th>Lagerplatz</th>
+                    <th>Status</th>
+                    <th>Aktionen</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector('tbody');
+
         werkzeuge.forEach(w => {
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td>${w.icon || '🔧'}</td>
-                <td>${w.name}</td>
-                <td>${w.inventarnummer}</td>
-                <td>${w.kategorie || '-'}</td>
-                <td>${w.lagerplatz || '-'}</td>
+                <td>${escapeHtml(w.icon || '🔧')}</td>
+                <td>${escapeHtml(w.name)}</td>
+                <td>${escapeHtml(w.inventarnummer)}</td>
+                <td>${escapeHtml(w.kategorie || '-')}</td>
+                <td>${escapeHtml(w.lagerplatz || '-')}</td>
                 <td>${getStatusBadge(w.status)}</td>
                 <td>
-                    <button class="btn-primary btn-small" onclick="showQRCode(${w.id}, '${w.name}', '${w.inventarnummer}')">QR</button>
+                    <button class="btn-primary btn-small" onclick="showQRCode(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${escapeForSingleQuotedJs(w.inventarnummer)}')">QR</button>
                     <button class="btn-warning btn-small" onclick="editWerkzeug(${w.id})">✏️</button>
                     <button class="btn-danger btn-small" onclick="deleteWerkzeug(${w.id})">🗑️</button>
                 </td>
@@ -593,7 +640,7 @@ function showAddWerkzeug() {
 async function editWerkzeug(id) {
     try {
         const werkzeug = await apiCall(`/werkzeuge/${id}`);
-        
+
         document.getElementById('werkzeugId').value = werkzeug.id;
         document.getElementById('werkzeugName').value = werkzeug.name;
         document.getElementById('werkzeugIcon').value = werkzeug.icon || '';
@@ -603,12 +650,12 @@ async function editWerkzeug(id) {
         document.getElementById('werkzeugZustand').value = werkzeug.zustand || '';
         document.getElementById('werkzeugKategorie').value = werkzeug.kategorie || '';
         document.getElementById('werkzeugLagerplatz').value = werkzeug.lagerplatz || '';
-        
+
         if (werkzeug.foto) {
-            document.getElementById('werkzeugFotoPreview').innerHTML = 
+            document.getElementById('werkzeugFotoPreview').innerHTML =
                 `<img src="${werkzeug.foto}" style="max-width:200px;margin-top:10px;">`;
         }
-        
+
         document.getElementById('werkzeugModalTitle').textContent = 'Werkzeug bearbeiten';
         document.getElementById('werkzeugModal').classList.add('active');
     } catch (err) {
@@ -620,7 +667,7 @@ function previewWerkzeugFoto(input) {
     if (input.files && input.files[0]) {
         const reader = new FileReader();
         reader.onload = function(e) {
-            document.getElementById('werkzeugFotoPreview').innerHTML = 
+            document.getElementById('werkzeugFotoPreview').innerHTML =
                 `<img src="${e.target.result}" style="max-width:200px;margin-top:10px;">`;
         };
         reader.readAsDataURL(input.files[0]);
@@ -629,7 +676,7 @@ function previewWerkzeugFoto(input) {
 
 async function saveWerkzeug(event) {
     event.preventDefault();
-    
+
     const id = document.getElementById('werkzeugId').value;
     const data = {
         name: document.getElementById('werkzeugName').value,
@@ -641,32 +688,28 @@ async function saveWerkzeug(event) {
         kategorie: document.getElementById('werkzeugKategorie').value,
         lagerplatz: document.getElementById('werkzeugLagerplatz').value
     };
-    
-    // Foto (falls neu hochgeladen)
+
     const fotoInput = document.getElementById('werkzeugFoto');
     if (fotoInput.files && fotoInput.files[0]) {
         data.foto = await fileToBase64(fotoInput.files[0]);
     }
-    
+
     try {
         if (id) {
-            // Bearbeiten
             await apiCall(`/werkzeuge/${id}`, {
                 method: 'PUT',
                 body: JSON.stringify(data)
             });
             showToast('✓ Werkzeug aktualisiert!');
         } else {
-            // Neu erstellen
             await apiCall('/werkzeuge', {
                 method: 'POST',
                 body: JSON.stringify(data)
             });
             showToast('✓ Werkzeug hinzugefügt!');
         }
-        
+
         closeModal('werkzeugModal');
-        loadAdminWerkzeuge();
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
@@ -675,13 +718,12 @@ async function saveWerkzeug(event) {
 
 async function deleteWerkzeug(id) {
     if (!confirm('Werkzeug wirklich löschen?')) return;
-    
+
     try {
         await apiCall(`/werkzeuge/${id}`, {
             method: 'DELETE'
         });
         showToast('✓ Werkzeug gelöscht!');
-        loadAdminWerkzeuge();
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
@@ -692,18 +734,18 @@ async function deleteWerkzeug(id) {
 
 function showQRCode(id, name, inventarnummer) {
     const url = `${window.location.origin}?tool=${id}`;
-    
+
     document.getElementById('qrWerkzeugName').textContent = `${name} (${inventarnummer})`;
-    
+
     const qrContainer = document.getElementById('qrCodeContainer');
     qrContainer.innerHTML = '';
-    
+
     new QRCode(qrContainer, {
         text: url,
         width: 200,
         height: 200
     });
-    
+
     document.getElementById('qrModal').classList.add('active');
 }
 
@@ -712,22 +754,38 @@ function showQRCode(id, name, inventarnummer) {
 async function loadAusleihen() {
     try {
         const status = document.getElementById('ausleihenFilter')?.value || '';
-        const endpoint = status ? `/ausleihen?status=${status}` : '/ausleihen';
+        const endpoint = status ? `/ausleihen?status=${encodeURIComponent(status)}` : '/ausleihen';
         const ausleihen = await apiCall(endpoint);
-        
-        const tbody = document.getElementById('ausleihenTable');
-        tbody.innerHTML = '';
-        
+
+        const table = document.getElementById('ausleihenTable');
+        if (!table) return;
+
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Werkzeug</th>
+                    <th>Mitarbeiter</th>
+                    <th>Zeitraum</th>
+                    <th>Status</th>
+                    <th>Aktionen</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector('tbody');
+
         ausleihen.forEach(a => {
             const row = document.createElement('tr');
-            
-            const isUeberfaellig = a.status === 'ausgeliehen' && new Date(a.datum_bis) < new Date();
-            const ueberfaelligBadge = isUeberfaellig ? '<span class="badge badge-danger pulse">⚠️ Überfällig</span>' : '';
-            
+
+            const isUeberfaellig = a.status === 'ausgeliehen' && a.datum_bis && new Date(a.datum_bis) < new Date();
+            const ueberfaelligBadge = isUeberfaellig ? '<span class="badge badge-overdue">⚠️ Überfällig</span>' : '';
+            if (isUeberfaellig) row.classList.add('overdue');
+
             row.innerHTML = `
-                <td>${a.werkzeug_name} (${a.inventarnummer})</td>
-                <td>${a.mitarbeiter_name}</td>
-                <td>${formatDate(a.datum_von)} - ${formatDate(a.datum_bis)}</td>
+                <td>${escapeHtml(a.werkzeug_name)} (${escapeHtml(a.inventarnummer)})</td>
+                <td>${escapeHtml(a.mitarbeiter_name || '-')}</td>
+                <td>${escapeHtml(formatDate(a.datum_von))} - ${escapeHtml(formatDate(a.datum_bis))}</td>
                 <td>${getAusleiheStatusBadge(a.status)} ${ueberfaelligBadge}</td>
                 <td>
                     ${a.status === 'reserviert' ? `<button class="btn-success btn-small" onclick="ausgebenAusleihe(${a.id})">✓ Ausgeben</button>` : ''}
@@ -748,18 +806,17 @@ function getAusleiheStatusBadge(status) {
         'ausgeliehen': '<span class="status-badge status-ausgeliehen">📤 Ausgeliehen</span>',
         'zurueckgegeben': '<span class="status-badge status-verfuegbar">↩️ Zurückgegeben</span>'
     };
-    return badges[status] || status;
+    return badges[status] || escapeHtml(status);
 }
 
 async function ausgebenAusleihe(id) {
     if (!confirm('Ausleihe ausgeben?')) return;
-    
+
     try {
         await apiCall(`/ausleihen/${id}/ausgeben`, {
             method: 'PATCH'
         });
         showToast('✓ Ausleihe ausgegeben!');
-        loadAusleihen();
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
@@ -774,11 +831,11 @@ function showRueckgabe(id) {
 
 async function submitRueckgabe(event) {
     event.preventDefault();
-    
+
     const id = document.getElementById('rueckgabeId').value;
     const zustand = document.getElementById('rueckgabeZustand').value;
     const kommentar = document.getElementById('rueckgabeKommentar').value;
-    
+
     try {
         await apiCall(`/ausleihen/${id}/rueckgabe`, {
             method: 'PATCH',
@@ -787,10 +844,9 @@ async function submitRueckgabe(event) {
                 rueckgabe_kommentar: kommentar
             })
         });
-        
+
         showToast('✓ Rückgabe dokumentiert!');
         closeModal('rueckgabeModal');
-        loadAusleihen();
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
@@ -799,17 +855,167 @@ async function submitRueckgabe(event) {
 
 async function deleteAusleihe(id) {
     if (!confirm('Ausleihe löschen?')) return;
-    
+
     try {
         await apiCall(`/ausleihen/${id}`, {
             method: 'DELETE'
         });
         showToast('✓ Ausleihe gelöscht!');
-        loadAusleihen();
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
     }
+}
+
+// ==================== Buchungskalender ====================
+
+function renderKalenderKategorieFilter() {
+    const select = document.getElementById('kalenderKategorieFilter');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">Alle Kategorien</option>';
+    kalenderKategorien.forEach(kategorie => {
+        const option = document.createElement('option');
+        option.value = kategorie;
+        option.textContent = kategorie;
+        if (kategorie === kalenderState.kategorie) option.selected = true;
+        select.appendChild(option);
+    });
+}
+
+function shiftKalender(days) {
+    kalenderState.startDate = addDaysToIso(kalenderState.startDate, days);
+    const input = document.getElementById('kalenderStart');
+    if (input) input.value = kalenderState.startDate;
+    loadKalender();
+}
+
+function resetKalenderHeute() {
+    kalenderState.startDate = toIsoDate(new Date());
+    const input = document.getElementById('kalenderStart');
+    if (input) input.value = kalenderState.startDate;
+    loadKalender();
+}
+
+async function loadKalender() {
+    const startInput = document.getElementById('kalenderStart');
+    const categoryInput = document.getElementById('kalenderKategorieFilter');
+    const container = document.getElementById('kalenderContainer');
+    const summary = document.getElementById('kalenderSummary');
+
+    if (!container || !summary) return;
+
+    kalenderState.startDate = startInput?.value || kalenderState.startDate || toIsoDate(new Date());
+    kalenderState.kategorie = categoryInput?.value || '';
+
+    container.innerHTML = '<div class="loading">Kalender wird geladen…</div>';
+    summary.textContent = 'Lade 4-Wochen-Ansicht…';
+
+    try {
+        const params = new URLSearchParams({
+            from: kalenderState.startDate,
+            days: String(kalenderState.days)
+        });
+
+        if (kalenderState.kategorie) {
+            params.set('kategorie', kalenderState.kategorie);
+        }
+
+        const data = await apiCall(`/ausleihen/kalender?${params.toString()}`);
+        renderKalender(data);
+    } catch (err) {
+        container.innerHTML = `<div class="error">Kalender konnte nicht geladen werden: ${escapeHtml(err.message)}</div>`;
+        summary.textContent = 'Kalender nicht verfügbar';
+    }
+}
+
+function renderKalender(data) {
+    const container = document.getElementById('kalenderContainer');
+    const summary = document.getElementById('kalenderSummary');
+    if (!container || !summary) return;
+
+    const tools = data.tools || [];
+    const headers = data.date_headers || [];
+    const totalBookings = tools.reduce((sum, tool) => sum + (tool.bookings?.length || 0), 0);
+
+    summary.textContent = `${tools.length} Werkzeuge · ${headers.length} Tage · ${totalBookings} aktive Buchung${totalBookings === 1 ? '' : 'en'}`;
+
+    if (!tools.length) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📅</div><p>Keine Werkzeuge für den gewählten Filter gefunden.</p></div>';
+        return;
+    }
+
+    const headerCells = headers.map(dateStr => {
+        const date = new Date(`${dateStr}T00:00:00`);
+        const weekday = date.toLocaleDateString('de-DE', { weekday: 'short' });
+        const day = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        const weekendClass = [0, 6].includes(date.getDay()) ? ' weekend' : '';
+        return `<th class="kalender-date${weekendClass}"><span>${escapeHtml(weekday)}</span><small>${escapeHtml(day)}</small></th>`;
+    }).join('');
+
+    const rows = tools.map(tool => {
+        const cells = headers.map(dateStr => buildCalendarCell(tool, dateStr)).join('');
+        const bookingInfo = tool.bookings?.length
+            ? `<div class="kalender-tool-subline">${tool.bookings.length} aktive Buchung${tool.bookings.length === 1 ? '' : 'en'}</div>`
+            : '<div class="kalender-tool-subline">Keine Buchung im Zeitraum</div>';
+
+        return `
+            <tr>
+                <td class="kalender-tool-cell">
+                    <div class="kalender-tool-name">${escapeHtml(tool.icon || '🔧')} ${escapeHtml(tool.name)}</div>
+                    <div class="kalender-tool-meta">${escapeHtml(tool.inventarnummer || '-')} ${tool.kategorie ? `· ${escapeHtml(tool.kategorie)}` : ''}</div>
+                    ${bookingInfo}
+                </td>
+                ${cells}
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="kalender-legend">
+            <span class="legend-item"><span class="legend-color frei"></span> Frei</span>
+            <span class="legend-item"><span class="legend-color reserviert"></span> Reserviert</span>
+            <span class="legend-item"><span class="legend-color ausgeliehen"></span> Ausgeliehen</span>
+            <span class="legend-item"><span class="legend-color heute"></span> Heute</span>
+        </div>
+        <div class="kalender-wrapper">
+            <table class="kalender-table">
+                <thead>
+                    <tr>
+                        <th>Werkzeug / Zeitraum</th>
+                        ${headerCells}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function buildCalendarCell(tool, dateStr) {
+    const todayIso = toIsoDate(new Date());
+    const match = (tool.bookings || []).find(booking => booking.datum_von <= dateStr && booking.datum_bis >= dateStr);
+
+    const classes = ['kalender-cell'];
+    const tooltipParts = [`${tool.name} · ${formatDate(dateStr)}`];
+
+    if (dateStr === todayIso) classes.push('is-today');
+
+    if (match) {
+        classes.push(match.status === 'ausgeliehen' ? 'is-ausgeliehen' : 'is-reserviert');
+        const startMarker = match.datum_von === dateStr ? ' booking-start' : '';
+        const endMarker = match.datum_bis === dateStr ? ' booking-end' : '';
+        if (startMarker.trim()) classes.push(startMarker.trim());
+        if (endMarker.trim()) classes.push(endMarker.trim());
+        tooltipParts.push(`${match.status === 'ausgeliehen' ? 'Ausgeliehen' : 'Reserviert'}: ${match.mitarbeiter_name || '-'}`);
+        tooltipParts.push(`${formatDate(match.datum_von)} – ${formatDate(match.datum_bis)}`);
+        return `<td class="${classes.join(' ')}" title="${escapeHtml(tooltipParts.join(' | '))}"><span>${match.status === 'ausgeliehen' ? '●' : '◼'}</span></td>`;
+    }
+
+    tooltipParts.push('Frei');
+    return `<td class="${classes.join(' ')} is-free" title="${escapeHtml(tooltipParts.join(' | '))}"></td>`;
 }
 
 // ==================== Schäden (Admin) ====================
@@ -817,20 +1023,36 @@ async function deleteAusleihe(id) {
 async function loadSchaeden() {
     try {
         const schaeden = await apiCall('/schaeden');
-        
-        const tbody = document.getElementById('schaedenTable');
-        tbody.innerHTML = '';
-        
+
+        const table = document.getElementById('schaedenTable');
+        if (!table) return;
+
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Werkzeug</th>
+                    <th>Mitarbeiter</th>
+                    <th>Beschreibung</th>
+                    <th>Gemeldet</th>
+                    <th>Status</th>
+                    <th>Aktionen</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector('tbody');
+
         schaeden.forEach(s => {
             const row = document.createElement('tr');
             row.innerHTML = `
-                <td>${s.werkzeug_name} (${s.inventarnummer})</td>
-                <td>${s.mitarbeiter_name || '-'}</td>
-                <td>${s.beschreibung}</td>
-                <td>${formatDate(s.gemeldet_am)}</td>
-                <td>${s.status === 'offen' ? '<span class="badge badge-danger">Offen</span>' : '<span class="badge badge-success">Behoben</span>'}</td>
+                <td>${escapeHtml(s.werkzeug_name)} (${escapeHtml(s.inventarnummer)})</td>
+                <td>${escapeHtml(s.mitarbeiter_name || '-')}</td>
+                <td>${escapeHtml(s.beschreibung)}</td>
+                <td>${escapeHtml(formatDate(s.gemeldet_am))}</td>
+                <td>${s.status === 'offen' ? '<span class="badge badge-defekt">Offen</span>' : '<span class="badge badge-available">Behoben</span>'}</td>
                 <td>
-                    ${s.foto ? `<button class="btn-primary btn-small" onclick="showSchadenFoto('${s.foto}')">📷</button>` : ''}
+                    ${s.foto ? `<button class="btn-primary btn-small" onclick="showSchadenFoto('${escapeForSingleQuotedJs(s.foto)}')">📷</button>` : ''}
                     ${s.status === 'offen' ? `<button class="btn-success btn-small" onclick="behebenSchaden(${s.id})">✓ Behoben</button>` : ''}
                     <button class="btn-danger btn-small" onclick="deleteSchaden(${s.id})">🗑️</button>
                 </td>
@@ -846,26 +1068,24 @@ function showSchadenFoto(foto) {
     const img = document.createElement('img');
     img.src = foto;
     img.style.maxWidth = '100%';
-    
+
     const modal = document.createElement('div');
     modal.className = 'modal active';
     modal.innerHTML = `<div class="modal-content"><button onclick="this.parentElement.parentElement.remove()" class="btn-secondary">Schließen</button></div>`;
     modal.querySelector('.modal-content').prepend(img);
-    
+
     document.body.appendChild(modal);
 }
 
 async function behebenSchaden(id) {
     if (!confirm('Schaden als behoben markieren?')) return;
-    
+
     try {
         await apiCall(`/schaeden/${id}/beheben`, {
             method: 'PATCH'
         });
         showToast('✓ Schaden behoben!');
-        loadSchaeden();
         loadDashboard();
-        loadAdminWerkzeuge();
     } catch (err) {
         alert('Fehler: ' + err.message);
     }
@@ -873,7 +1093,7 @@ async function behebenSchaden(id) {
 
 async function deleteSchaden(id) {
     if (!confirm('Schaden löschen?')) return;
-    
+
     try {
         await apiCall(`/schaeden/${id}`, {
             method: 'DELETE'
@@ -909,19 +1129,19 @@ function showImportCSV() {
 async function importCSV(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     const text = await file.text();
-    const lines = text.split('\n').slice(1); // Erste Zeile (Header) überspringen
-    
+    const lines = text.split('\n').slice(1);
+
     let imported = 0;
     let errors = 0;
-    
+
     for (const line of lines) {
         if (!line.trim()) continue;
-        
+
         const parts = line.split(',').map(p => p.replace(/^"|"$/g, '').trim());
         if (parts.length < 4) continue;
-        
+
         const data = {
             name: parts[0],
             beschreibung: parts[1],
@@ -930,7 +1150,7 @@ async function importCSV(event) {
             kategorie: parts[4] || '',
             lagerplatz: parts[5] || ''
         };
-        
+
         try {
             await apiCall('/werkzeuge', {
                 method: 'POST',
@@ -942,10 +1162,9 @@ async function importCSV(event) {
             errors++;
         }
     }
-    
+
     showToast(`✓ Import abgeschlossen: ${imported} erfolgreich, ${errors} Fehler`);
     closeModal('importModal');
-    loadAdminWerkzeuge();
     loadDashboard();
 }
 
@@ -955,6 +1174,20 @@ function formatDate(dateStr) {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
     return date.toLocaleDateString('de-DE');
+}
+
+function toIsoDate(date) {
+    return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0, 10);
+}
+
+function addDaysToIso(isoDate, days) {
+    const date = new Date(`${isoDate}T00:00:00`);
+    date.setDate(date.getDate() + days);
+    return toIsoDate(date);
+}
+
+function escapeForSingleQuotedJs(value) {
+    return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 async function fileToBase64(file) {
@@ -971,11 +1204,11 @@ function showToast(message) {
     toast.className = 'toast';
     toast.textContent = message;
     document.body.appendChild(toast);
-    
+
     setTimeout(() => {
         toast.classList.add('show');
     }, 100);
-    
+
     setTimeout(() => {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
@@ -999,17 +1232,17 @@ function filterAusleihen() {
 // ==================== Init ====================
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Event Listener
     document.getElementById('schadenForm')?.addEventListener('submit', submitSchaden);
     document.getElementById('werkzeugForm')?.addEventListener('submit', saveWerkzeug);
     document.getElementById('rueckgabeForm')?.addEventListener('submit', submitRueckgabe);
-    
-    // Auto-Dates setzen
-    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('kalenderStart')?.addEventListener('change', loadKalender);
+    document.getElementById('kalenderKategorieFilter')?.addEventListener('change', loadKalender);
+
+    const today = toIsoDate(new Date());
+    document.getElementById('kalenderStart')?.setAttribute('value', kalenderState.startDate);
     document.getElementById('reservierungVon')?.setAttribute('min', today);
     document.getElementById('reservierungBis')?.setAttribute('min', today);
-    
-    // Initiales Laden
+
     initApp();
 
     const toolId = getInitialToolIdFromUrl();
