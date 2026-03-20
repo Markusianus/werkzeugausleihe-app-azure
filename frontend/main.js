@@ -30,6 +30,16 @@ async function initApp() {
 
 // ==================== API Helper ====================
 
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+
 async function apiCall(endpoint, options = {}) {
     const defaultOptions = {
         headers: {
@@ -138,6 +148,49 @@ function logout() {
 
 // ==================== Werkzeuge laden ====================
 
+function getInitialToolIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('tool');
+    if (!raw) return null;
+    const id = Number(raw);
+    return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function buildWerkzeugDetailHtml(w) {
+    const isVerfuegbar = w.status === 'verfuegbar';
+    return `
+        ${w.foto ? `<img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
+        <div class="werkzeug-icon" style="margin-bottom:12px;">${escapeHtml(w.icon || '🔧')}</div>
+        <h3>${escapeHtml(w.name)}</h3>
+        <p>${escapeHtml(w.beschreibung || '')}</p>
+        <div class="werkzeug-meta" style="margin:16px 0;">
+            <span>📦 ${escapeHtml(w.inventarnummer || '-')}</span>
+            ${w.kategorie ? `<span>🏷️ ${escapeHtml(w.kategorie)}</span>` : ''}
+            ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
+        </div>
+        <div style="margin-bottom:16px;">${getStatusBadge(w.status)}</div>
+        <button class="btn-primary" onclick="addToWarenkorb(${Number(w.id)}); closeModal('toolDetailModal');" ${!isVerfuegbar ? 'disabled' : ''}>
+            ${isVerfuegbar ? '➕ In den Warenkorb' : 'Nicht verfügbar'}
+        </button>
+    `;
+}
+
+async function showWerkzeugDetail(id) {
+    try {
+        const werkzeug = await apiCall(`/werkzeuge/${id}`);
+        document.getElementById('toolDetailContent').innerHTML = buildWerkzeugDetailHtml(werkzeug);
+        document.getElementById('toolDetailModal').classList.add('active');
+        const url = new URL(window.location.href);
+        url.searchParams.set('tool', id);
+        window.history.replaceState({}, '', url);
+    } catch (err) {
+        showToast('❌ Werkzeug aus QR-Code nicht gefunden');
+        const url = new URL(window.location.href);
+        url.searchParams.delete('tool');
+        window.history.replaceState({}, '', url);
+    }
+}
+
 async function loadWerkzeuge(filter = {}) {
     try {
         let endpoint = '/werkzeuge?';
@@ -174,6 +227,7 @@ async function loadWerkzeuge(filter = {}) {
                     </div>
                     ${statusBadge}
                 </div>
+                <button class="btn-secondary" onclick="showWerkzeugDetail(${w.id})">ℹ️ Details</button>
                 <button 
                     class="btn-primary" 
                     onclick="addToWarenkorb(${w.id})" 
@@ -906,6 +960,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initiales Laden
     initApp();
+
+    const toolId = getInitialToolIdFromUrl();
+    if (toolId) {
+        showWerkzeugDetail(toolId);
+    }
     console.log('ToolHub API-Version geladen');
     console.log('API URL:', window.API_URL);
 });
