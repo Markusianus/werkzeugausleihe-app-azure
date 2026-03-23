@@ -776,6 +776,11 @@ function enrichToolRow(row) {
   };
 }
 
+function buildDefaultUnitLabel(row, index) {
+  const base = sanitizeText(row.name, { maxLength: 80 }) || 'Werkzeug';
+  return `${base} Einheit ${index}`;
+}
+
 async function createToolLabelPdfBuffer(req, tools) {
   const doc = new PDFDocument({
     size: 'A4',
@@ -888,6 +893,66 @@ async function ensureInventorySchema() {
     ADD COLUMN IF NOT EXISTS bestand_in_wartung INTEGER NOT NULL DEFAULT 0
   `);
   await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS einheitenmodell TEXT NOT NULL DEFAULT 'legacy_single'
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS seriennummernpflicht BOOLEAN NOT NULL DEFAULT false
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS standard_hersteller TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS standard_modell TEXT
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS werkzeug_einheiten (
+      id SERIAL PRIMARY KEY,
+      werkzeug_id INTEGER NOT NULL,
+      einheiten_code TEXT UNIQUE NOT NULL,
+      inventarnummer TEXT UNIQUE,
+      seriennummer TEXT,
+      bezeichnung TEXT,
+      status TEXT NOT NULL DEFAULT 'verfuegbar',
+      zustand TEXT,
+      lagerplatz TEXT,
+      anschaffungsdatum DATE,
+      hersteller TEXT,
+      modell TEXT,
+      qr_code TEXT,
+      aktiv BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (werkzeug_id) REFERENCES werkzeuge(id) ON DELETE CASCADE
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS werkzeug_einheit_historie (
+      id SERIAL PRIMARY KEY,
+      werkzeug_einheit_id INTEGER NOT NULL,
+      event_typ TEXT NOT NULL,
+      event_status TEXT,
+      referenz_typ TEXT,
+      referenz_id INTEGER,
+      notiz TEXT,
+      metadata JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (werkzeug_einheit_id) REFERENCES werkzeug_einheiten(id) ON DELETE CASCADE
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_werkzeug_einheiten_werkzeug_id ON werkzeug_einheiten(werkzeug_id)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_werkzeug_einheiten_status ON werkzeug_einheiten(status)
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_werkzeug_einheit_historie_einheit_id ON werkzeug_einheit_historie(werkzeug_einheit_id, created_at DESC)
+  `);
+  await pool.query(`
     UPDATE werkzeuge
     SET bestand_gesamt = 1
     WHERE bestand_gesamt IS NULL OR bestand_gesamt < 1
@@ -897,6 +962,72 @@ async function ensureInventorySchema() {
     SET bestand_defekt = GREATEST(COALESCE(bestand_defekt, 0), 0),
         bestand_in_wartung = GREATEST(COALESCE(bestand_in_wartung, 0), 0)
   `);
+
+  const toolRows = await pool.query(`
+    SELECT id, name, inventarnummer, zustand, lagerplatz, status, bestand_gesamt, bestand_defekt, bestand_in_wartung,
+           einheitenmodell, standard_hersteller, standard_modell
+    FROM werkzeuge
+    ORDER BY id ASC
+  `);
+
+  for (const row of toolRows.rows) {
+    const targetCount = Math.max(1, Number.parseInt(row.bestand_gesamt, 10) || 1);
+    const existingUnits = await pool.query(
+      'SELECT id FROM werkzeug_einheiten WHERE werkzeug_id = $1 ORDER BY id ASC',
+      [row.id]
+    );
+
+    if (!existingUnits.rows.length) {
+      const defectCount = Math.min(targetCount, Math.max(0, Number.parseInt(row.bestand_defekt, 10) || 0));
+      const maintenanceCount = Math.min(targetCount - defectCount, Math.max(0, Number.parseInt(row.bestand_in_wartung, 10) || 0));
+
+      for (let index = 1; index <= targetCount; index += 1) {
+        let unitStatus = 'verfuegbar';
+        if (index <= defectCount) unitStatus = 'defekt';
+        else if (index <= defectCount + maintenanceCount) unitStatus = 'reparatur';
+        else if (targetCount === 1 && row.status) unitStatus = row.status;
+
+        const unitCode = `WZE-${row.id}-${String(index).padStart(3, '0')}`;
+        const unitInventarnummer = index === 1 ? row.inventarnummer : `${row.inventarnummer}-${String(index).padStart(2, '0')}`;
+        const unitLabel = buildDefaultUnitLabel(row, index);
+
+        const inserted = await pool.query(`
+          INSERT INTO werkzeug_einheiten (
+            werkzeug_id, einheiten_code, inventarnummer, bezeichnung, status, zustand, lagerplatz, hersteller, modell, qr_code
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          RETURNING id
+        `, [
+          row.id,
+          unitCode,
+          unitInventarnummer,
+          unitLabel,
+          unitStatus,
+          row.zustand || null,
+          row.lagerplatz || null,
+          row.standard_hersteller || null,
+          row.standard_modell || null,
+          unitCode
+        ]);
+
+        await pool.query(`
+          INSERT INTO werkzeug_einheit_historie (werkzeug_einheit_id, event_typ, event_status, referenz_typ, notiz, metadata)
+          VALUES ($1, 'bootstrap', $2, 'werkzeug', $3, $4::jsonb)
+        `, [
+          inserted.rows[0].id,
+          unitStatus,
+          'Automatisch aus bestehendem Werkzeugbestand angelegt',
+          JSON.stringify({ werkzeug_id: row.id, index, source: 'ensureInventorySchema' })
+        ]);
+      }
+    }
+
+    await pool.query(`
+      UPDATE werkzeuge
+      SET einheitenmodell = CASE WHEN bestand_gesamt > 1 THEN 'tracked_units' ELSE einheitenmodell END
+      WHERE id = $1
+    `, [row.id]);
+  }
 }
 
 async function ensureMaintenanceSchema() {
@@ -1237,6 +1368,46 @@ app.get('/api/werkzeuge/:id', validateIdParam, async (req, res) => {
   }
 });
 
+app.get('/api/werkzeuge/:id/einheiten', validateIdParam, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const toolExists = await pool.query('SELECT id, name FROM werkzeuge WHERE id = $1', [id]);
+    if (!toolExists.rows.length) {
+      return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
+    }
+
+    const result = await pool.query(`
+      SELECT
+        e.*,
+        (
+          SELECT json_build_object(
+            'event_typ', h.event_typ,
+            'event_status', h.event_status,
+            'referenz_typ', h.referenz_typ,
+            'referenz_id', h.referenz_id,
+            'notiz', h.notiz,
+            'created_at', h.created_at
+          )
+          FROM werkzeug_einheit_historie h
+          WHERE h.werkzeug_einheit_id = e.id
+          ORDER BY h.created_at DESC
+          LIMIT 1
+        ) AS letztes_historien_event
+      FROM werkzeug_einheiten e
+      WHERE e.werkzeug_id = $1
+      ORDER BY e.id ASC
+    `, [id]);
+
+    res.json({
+      werkzeug_id: Number(id),
+      werkzeug_name: toolExists.rows[0].name,
+      einheiten: result.rows
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) => {
   try {
     const validation = validateToolPayload(req.body);
@@ -1264,9 +1435,9 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
       INSERT INTO werkzeuge (
         name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status,
         wartungsintervall_tage, letzte_wartung_am, naechste_wartung_am, wartung_notiz,
-        bestand_gesamt, bestand_defekt, bestand_in_wartung
+        bestand_gesamt, bestand_defekt, bestand_in_wartung, einheitenmodell
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar', $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar', $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `, [
       name,
@@ -1283,7 +1454,8 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
       coerceNullableText(wartung_notiz),
       bestand_gesamt || 1,
       bestand_defekt || 0,
-      bestand_in_wartung || 0
+      bestand_in_wartung || 0,
+      (bestand_gesamt || 1) > 1 ? 'tracked_units' : 'legacy_single'
     ]);
 
     await logAdminAudit({
@@ -1291,6 +1463,43 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
       action: 'tool.create',
       metadata: { toolId: result.rows[0].id, inventarnummer }
     });
+
+    if ((bestand_gesamt || 1) > 0) {
+      for (let index = 1; index <= (bestand_gesamt || 1); index += 1) {
+        const unitStatus = index <= (bestand_defekt || 0)
+          ? 'defekt'
+          : (index <= ((bestand_defekt || 0) + (bestand_in_wartung || 0)) ? 'reparatur' : 'verfuegbar');
+        const unitCode = `WZE-${result.rows[0].id}-${String(index).padStart(3, '0')}`;
+        const unitInventarnummer = index === 1 ? inventarnummer : `${inventarnummer}-${String(index).padStart(2, '0')}`;
+        const inserted = await pool.query(`
+          INSERT INTO werkzeug_einheiten (
+            werkzeug_id, einheiten_code, inventarnummer, bezeichnung, status, zustand, lagerplatz, qr_code
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          RETURNING id
+        `, [
+          result.rows[0].id,
+          unitCode,
+          unitInventarnummer,
+          buildDefaultUnitLabel(result.rows[0], index),
+          unitStatus,
+          zustand || null,
+          lagerplatz || null,
+          unitCode
+        ]);
+
+        await pool.query(`
+          INSERT INTO werkzeug_einheit_historie (werkzeug_einheit_id, event_typ, event_status, referenz_typ, referenz_id, notiz, metadata)
+          VALUES ($1, 'created', $2, 'werkzeug', $3, $4, $5::jsonb)
+        `, [
+          inserted.rows[0].id,
+          unitStatus,
+          result.rows[0].id,
+          'Einheit beim Anlegen des Werkzeugtyps erstellt',
+          JSON.stringify({ source: 'tool.create', index })
+        ]);
+      }
+    }
 
     res.status(201).json(enrichToolRow(result.rows[0]));
   } catch (err) {
