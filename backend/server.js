@@ -879,6 +879,11 @@ async function createToolLabelPdfBuffer(req, tools) {
   return finished;
 }
 
+function buildSafeUnitInventoryNumber(baseInventarnummer, toolId, index) {
+  const base = sanitizeText(baseInventarnummer, { maxLength: 120 }) || `WZ-${toolId}`;
+  return index === 1 ? base : `${base}::${String(index).padStart(2, '0')}`;
+}
+
 async function ensureInventorySchema() {
   await pool.query(`
     ALTER TABLE werkzeuge
@@ -988,7 +993,7 @@ async function ensureInventorySchema() {
         else if (targetCount === 1 && row.status) unitStatus = row.status;
 
         const unitCode = `WZE-${row.id}-${String(index).padStart(3, '0')}`;
-        const unitInventarnummer = index === 1 ? row.inventarnummer : `${row.inventarnummer}-${String(index).padStart(2, '0')}`;
+        const unitInventarnummer = buildSafeUnitInventoryNumber(row.inventarnummer, row.id, index);
         const unitLabel = buildDefaultUnitLabel(row, index);
 
         const inserted = await pool.query(`
@@ -1470,7 +1475,7 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
           ? 'defekt'
           : (index <= ((bestand_defekt || 0) + (bestand_in_wartung || 0)) ? 'reparatur' : 'verfuegbar');
         const unitCode = `WZE-${result.rows[0].id}-${String(index).padStart(3, '0')}`;
-        const unitInventarnummer = index === 1 ? inventarnummer : `${inventarnummer}-${String(index).padStart(2, '0')}`;
+        const unitInventarnummer = buildSafeUnitInventoryNumber(inventarnummer, result.rows[0].id, index);
         const inserted = await pool.query(`
           INSERT INTO werkzeug_einheiten (
             werkzeug_id, einheiten_code, inventarnummer, bezeichnung, status, zustand, lagerplatz, qr_code
@@ -2369,8 +2374,15 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Interner Serverfehler' });
 });
 
-Promise.all([ensureInventorySchema(), ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchema()])
-  .then(() => {
+Promise.all([ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchema()])
+  .then(async () => {
+    try {
+      await ensureInventorySchema();
+      console.log('✅ Inventory-Schema geprüft/aktualisiert');
+    } catch (err) {
+      console.error('⚠️ Inventory-Schema-Initialisierung fehlgeschlagen, Backend startet trotzdem weiter:', err);
+    }
+
     app.listen(PORT, () => {
       console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
       startDailyOverdueScheduler();
