@@ -175,8 +175,35 @@ function getWartungsStatusBadge(werkzeug) {
     return `<span class="status-badge maintenance-ok">🗓️ Nächste Wartung ${next ? escapeHtml(formatDate(next)) : 'offen'}</span>`;
 }
 
+function getInventorySummaryHtml(w, { compact = false } = {}) {
+    const gesamt = Number(w.bestand_gesamt || 1);
+    const verfuegbar = Number(w.verfuegbare_einheiten ?? (w.status === 'verfuegbar' ? 1 : 0));
+    const reserviert = Number(w.aktiv_reserviert || 0);
+    const ausgeliehen = Number(w.aktiv_ausgeliehen || 0);
+    const defekt = Number(w.bestand_defekt || 0);
+    const inWartung = Number(w.bestand_in_wartung || 0);
+
+    if (!w.hat_mehrfachbestand && !defekt && !inWartung && !reserviert && !ausgeliehen) {
+        return compact ? '<div style="font-size:0.85em;color:#6b7280;">1 Einheit im Bestand</div>' : '<div class="info" style="margin-bottom:16px;text-align:left;"><strong>Bestand:</strong> 1 Einheit im Bestand</div>';
+    }
+
+    const parts = [
+        `${verfuegbar} verfügbar`,
+        `${gesamt} gesamt`
+    ];
+
+    if (reserviert) parts.push(`${reserviert} reserviert`);
+    if (ausgeliehen) parts.push(`${ausgeliehen} ausgeliehen`);
+    if (defekt) parts.push(`${defekt} defekt`);
+    if (inWartung) parts.push(`${inWartung} in Wartung`);
+
+    return compact
+        ? `<div style="font-size:0.85em;color:#6b7280;">📦 ${parts.join(' · ')}</div>`
+        : `<div class="info" style="margin-bottom:16px;text-align:left;"><strong>Bestand:</strong> ${escapeHtml(parts.join(' · '))}</div>`;
+}
+
 function buildWerkzeugDetailHtml(w) {
-    const isVerfuegbar = w.status === 'verfuegbar';
+    const isVerfuegbar = Number(w.verfuegbare_einheiten ?? 0) > 0;
     return `
         ${w.foto ? `<img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
         <div class="werkzeug-icon" style="margin-bottom:12px;">${escapeHtml(w.icon || '🔧')}</div>
@@ -187,7 +214,8 @@ function buildWerkzeugDetailHtml(w) {
             ${w.kategorie ? `<span>🏷️ ${escapeHtml(w.kategorie)}</span>` : ''}
             ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
         </div>
-        <div style="margin-bottom:12px;">${getStatusBadge(w.status)}</div>
+        <div style="margin-bottom:12px;">${getStatusBadge(w.status_abgeleitet || w.status)}</div>
+        <div style="margin-bottom:12px;">${getInventorySummaryHtml(w)}</div>
         <div style="margin-bottom:16px;">${getWartungsStatusBadge(w)}</div>
         ${w.wartungsintervall_tage ? `
             <div class="info" style="margin-bottom:16px;text-align:left;">
@@ -240,8 +268,8 @@ async function loadWerkzeuge(filter = {}) {
             const card = document.createElement('div');
             card.className = 'werkzeug-card';
 
-            const isVerfuegbar = w.status === 'verfuegbar';
-            const statusBadge = getStatusBadge(w.status);
+            const isVerfuegbar = Number(w.verfuegbare_einheiten ?? 0) > 0;
+            const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
 
             card.innerHTML = `
                 ${w.foto ? `<img src="${w.foto}" alt="${escapeHtml(w.name)}">` : ''}
@@ -255,6 +283,7 @@ async function loadWerkzeuge(filter = {}) {
                         ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
                     </div>
                     ${statusBadge}
+                    <div style="margin-top:8px;">${getInventorySummaryHtml(w, { compact: true })}</div>
                     <div style="margin-top:8px;">${getWartungsStatusBadge(w)}</div>
                 </div>
                 <button class="btn-secondary" onclick="showWerkzeugDetail(${w.id})">ℹ️ Details</button>
@@ -800,7 +829,11 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                 <td>${escapeHtml(w.inventarnummer)}</td>
                 <td>${escapeHtml(w.kategorie || '-')}</td>
                 <td>${escapeHtml(w.lagerplatz || '-')}</td>
-                <td>${getStatusBadge(w.status)}</td>
+                <td>
+                    ${getStatusBadge(w.status_abgeleitet || w.status)}
+                    <div style="font-size:0.8em;margin-top:6px;color:#6b7280;">${escapeHtml(`${Number(w.verfuegbare_einheiten ?? 0)} von ${Number(w.bestand_gesamt || 1)} verfügbar`)}</div>
+                    ${(Number(w.bestand_defekt || 0) || Number(w.bestand_in_wartung || 0)) ? `<div style="font-size:0.78em;margin-top:4px;color:#6b7280;">${escapeHtml(`${Number(w.bestand_defekt || 0)} defekt · ${Number(w.bestand_in_wartung || 0)} in Wartung`)}</div>` : ''}
+                </td>
                 <td>
                     ${getWartungsStatusBadge(w)}
                     ${w.wartungsintervall_tage ? `<div style="font-size:0.8em;margin-top:6px;color:#6b7280;">${escapeHtml(w.wartungsintervall_tage)} Tage · zuletzt ${escapeHtml(formatDate(w.letzte_wartung_am))}</div>` : ''}
@@ -835,6 +868,9 @@ function showAddWerkzeug() {
     document.getElementById('werkzeugWartungsintervall').value = '';
     document.getElementById('werkzeugLetzteWartung').value = '';
     document.getElementById('werkzeugWartungNotiz').value = '';
+    document.getElementById('werkzeugBestandGesamt').value = '1';
+    document.getElementById('werkzeugBestandDefekt').value = '0';
+    document.getElementById('werkzeugBestandInWartung').value = '0';
     document.getElementById('werkzeugModal').classList.add('active');
 }
 
@@ -854,6 +890,9 @@ async function editWerkzeug(id) {
         document.getElementById('werkzeugWartungsintervall').value = werkzeug.wartungsintervall_tage || '';
         document.getElementById('werkzeugLetzteWartung').value = werkzeug.letzte_wartung_am || '';
         document.getElementById('werkzeugWartungNotiz').value = werkzeug.wartung_notiz || '';
+        document.getElementById('werkzeugBestandGesamt').value = werkzeug.bestand_gesamt || 1;
+        document.getElementById('werkzeugBestandDefekt').value = werkzeug.bestand_defekt || 0;
+        document.getElementById('werkzeugBestandInWartung').value = werkzeug.bestand_in_wartung || 0;
 
         if (werkzeug.foto) {
             document.getElementById('werkzeugFotoPreview').innerHTML =
@@ -893,7 +932,10 @@ async function saveWerkzeug(event) {
         lagerplatz: document.getElementById('werkzeugLagerplatz').value,
         wartungsintervall_tage: document.getElementById('werkzeugWartungsintervall').value,
         letzte_wartung_am: document.getElementById('werkzeugLetzteWartung').value,
-        wartung_notiz: document.getElementById('werkzeugWartungNotiz').value
+        wartung_notiz: document.getElementById('werkzeugWartungNotiz').value,
+        bestand_gesamt: document.getElementById('werkzeugBestandGesamt').value,
+        bestand_defekt: document.getElementById('werkzeugBestandDefekt').value,
+        bestand_in_wartung: document.getElementById('werkzeugBestandInWartung').value
     };
 
     const fotoInput = document.getElementById('werkzeugFoto');

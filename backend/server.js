@@ -232,6 +232,12 @@ function coercePositiveIntegerOrNull(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function coerceNonNegativeIntegerOrNull(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function coerceNullableText(value) {
   if (value === undefined || value === null) return null;
   const normalized = String(value).trim();
@@ -312,6 +318,55 @@ function validateToolPayload(body, { partial = false } = {}) {
   assignOptionalText('kategorie', MAX_TEXT_LENGTH.short);
   assignOptionalText('lagerplatz', MAX_TEXT_LENGTH.short);
   assignOptionalText('wartung_notiz', MAX_TEXT_LENGTH.long);
+
+  const bestandGesamt = coercePositiveIntegerOrNull(body.bestand_gesamt);
+  if (Object.prototype.hasOwnProperty.call(body, 'bestand_gesamt')) {
+    if (body.bestand_gesamt !== null && body.bestand_gesamt !== '' && bestandGesamt === null) {
+      errors.push('bestand_gesamt muss eine positive Ganzzahl sein');
+    }
+    payload.bestand_gesamt = bestandGesamt;
+  }
+
+  const bestandDefekt = coerceNonNegativeIntegerOrNull(body.bestand_defekt);
+  if (Object.prototype.hasOwnProperty.call(body, 'bestand_defekt')) {
+    if (body.bestand_defekt !== null && body.bestand_defekt !== '' && bestandDefekt === null) {
+      errors.push('bestand_defekt muss eine Ganzzahl ab 0 sein');
+    }
+    payload.bestand_defekt = bestandDefekt;
+  }
+
+  const bestandInWartung = coerceNonNegativeIntegerOrNull(body.bestand_in_wartung);
+  if (Object.prototype.hasOwnProperty.call(body, 'bestand_in_wartung')) {
+    if (body.bestand_in_wartung !== null && body.bestand_in_wartung !== '' && bestandInWartung === null) {
+      errors.push('bestand_in_wartung muss eine Ganzzahl ab 0 sein');
+    }
+    payload.bestand_in_wartung = bestandInWartung;
+  }
+
+  if (
+    bestandGesamt !== null &&
+    bestandDefekt !== null &&
+    bestandDefekt > bestandGesamt
+  ) {
+    errors.push('bestand_defekt darf nicht größer als bestand_gesamt sein');
+  }
+
+  if (
+    bestandGesamt !== null &&
+    bestandInWartung !== null &&
+    bestandInWartung > bestandGesamt
+  ) {
+    errors.push('bestand_in_wartung darf nicht größer als bestand_gesamt sein');
+  }
+
+  if (
+    bestandGesamt !== null &&
+    bestandDefekt !== null &&
+    bestandInWartung !== null &&
+    (bestandDefekt + bestandInWartung) > bestandGesamt
+  ) {
+    errors.push('Defekte und Wartungseinheiten zusammen dürfen den Gesamtbestand nicht überschreiten');
+  }
 
   if (Object.prototype.hasOwnProperty.call(body, 'status')) {
     const status = sanitizeEnum(body.status, ALLOWED_TOOL_STATUSES);
@@ -684,6 +739,43 @@ function buildToolQrUrl(req, toolId) {
   return `${baseUrl}?tool=${toolId}`;
 }
 
+function normalizeInventoryCounts(row) {
+  const bestandGesamt = Math.max(1, Number.parseInt(row.bestand_gesamt, 10) || 1);
+  const bestandDefekt = Math.max(0, Number.parseInt(row.bestand_defekt, 10) || 0);
+  const bestandInWartung = Math.max(0, Number.parseInt(row.bestand_in_wartung, 10) || 0);
+  const aktivAusgeliehen = Math.max(0, Number.parseInt(row.aktiv_ausgeliehen, 10) || 0);
+  const aktivReserviert = Math.max(0, Number.parseInt(row.aktiv_reserviert, 10) || 0);
+  const nichtEinsatzfaehig = Math.min(bestandGesamt, bestandDefekt + bestandInWartung);
+  const verfuegbar = Math.max(0, bestandGesamt - nichtEinsatzfaehig - aktivAusgeliehen - aktivReserviert);
+
+  return {
+    bestand_gesamt: bestandGesamt,
+    bestand_defekt: Math.min(bestandDefekt, bestandGesamt),
+    bestand_in_wartung: Math.min(bestandInWartung, bestandGesamt),
+    aktiv_ausgeliehen: aktivAusgeliehen,
+    aktiv_reserviert: aktivReserviert,
+    verfuegbare_einheiten: verfuegbar,
+    belegte_einheiten: aktivAusgeliehen + aktivReserviert,
+    nicht_einsatzfaehige_einheiten: nichtEinsatzfaehig,
+    hat_mehrfachbestand: bestandGesamt > 1
+  };
+}
+
+function enrichToolRow(row) {
+  const inventory = normalizeInventoryCounts(row);
+  const wartungsstatus = calculateMaintenanceStatus(row.naechste_wartung_am);
+  const derivedStatus = inventory.verfuegbare_einheiten > 0
+    ? 'verfuegbar'
+    : (inventory.aktiv_ausgeliehen > 0 ? 'ausgeliehen' : (inventory.aktiv_reserviert > 0 ? 'reserviert' : row.status));
+
+  return {
+    ...row,
+    ...inventory,
+    status_abgeleitet: derivedStatus,
+    wartungsstatus
+  };
+}
+
 async function createToolLabelPdfBuffer(req, tools) {
   const doc = new PDFDocument({
     size: 'A4',
@@ -780,6 +872,31 @@ async function createToolLabelPdfBuffer(req, tools) {
 
   doc.end();
   return finished;
+}
+
+async function ensureInventorySchema() {
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS bestand_gesamt INTEGER NOT NULL DEFAULT 1
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS bestand_defekt INTEGER NOT NULL DEFAULT 0
+  `);
+  await pool.query(`
+    ALTER TABLE werkzeuge
+    ADD COLUMN IF NOT EXISTS bestand_in_wartung INTEGER NOT NULL DEFAULT 0
+  `);
+  await pool.query(`
+    UPDATE werkzeuge
+    SET bestand_gesamt = 1
+    WHERE bestand_gesamt IS NULL OR bestand_gesamt < 1
+  `);
+  await pool.query(`
+    UPDATE werkzeuge
+    SET bestand_defekt = GREATEST(COALESCE(bestand_defekt, 0), 0),
+        bestand_in_wartung = GREATEST(COALESCE(bestand_in_wartung, 0), 0)
+  `);
 }
 
 async function ensureMaintenanceSchema() {
@@ -1061,7 +1178,15 @@ app.get('/api/werkzeuge', async (req, res) => {
     const status = sanitizeEnum(req.query.status, ALLOWED_TOOL_STATUSES);
     const search = sanitizeText(req.query.search, { maxLength: MAX_TEXT_LENGTH.medium });
 
-    let query = 'SELECT * FROM werkzeuge WHERE 1=1';
+    let query = `
+      SELECT
+        w.*,
+        COUNT(*) FILTER (WHERE a.status = 'reserviert')::int AS aktiv_reserviert,
+        COUNT(*) FILTER (WHERE a.status = 'ausgeliehen')::int AS aktiv_ausgeliehen
+      FROM werkzeuge w
+      LEFT JOIN ausleihen a ON a.werkzeug_id = w.id AND a.status IN ('reserviert', 'ausgeliehen')
+      WHERE 1=1
+    `;
     const params = [];
 
     if (kategorie) {
@@ -1079,13 +1204,10 @@ app.get('/api/werkzeuge', async (req, res) => {
       query += ` AND (name ILIKE $${params.length} OR beschreibung ILIKE $${params.length} OR inventarnummer ILIKE $${params.length})`;
     }
 
-    query += ' ORDER BY name';
+    query += ' GROUP BY w.id ORDER BY w.name';
 
     const result = await pool.query(query, params);
-    res.json(result.rows.map(row => ({
-      ...row,
-      wartungsstatus: calculateMaintenanceStatus(row.naechste_wartung_am)
-    })));
+    res.json(result.rows.map(enrichToolRow));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1094,16 +1216,22 @@ app.get('/api/werkzeuge', async (req, res) => {
 app.get('/api/werkzeuge/:id', validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('SELECT * FROM werkzeuge WHERE id = $1', [id]);
+    const result = await pool.query(`
+      SELECT
+        w.*,
+        COUNT(*) FILTER (WHERE a.status = 'reserviert')::int AS aktiv_reserviert,
+        COUNT(*) FILTER (WHERE a.status = 'ausgeliehen')::int AS aktiv_ausgeliehen
+      FROM werkzeuge w
+      LEFT JOIN ausleihen a ON a.werkzeug_id = w.id AND a.status IN ('reserviert', 'ausgeliehen')
+      WHERE w.id = $1
+      GROUP BY w.id
+    `, [id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Werkzeug nicht gefunden' });
     }
 
-    res.json({
-      ...result.rows[0],
-      wartungsstatus: calculateMaintenanceStatus(result.rows[0].naechste_wartung_am)
-    });
+    res.json(enrichToolRow(result.rows[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1114,15 +1242,31 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
     const validation = validateToolPayload(req.body);
     if (handleValidation(validation, res)) return;
 
-    const { name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, wartungsintervall_tage, letzte_wartung_am, wartung_notiz } = validation.payload;
+    const {
+      name,
+      icon,
+      beschreibung,
+      inventarnummer,
+      zustand,
+      foto,
+      kategorie,
+      lagerplatz,
+      wartungsintervall_tage,
+      letzte_wartung_am,
+      wartung_notiz,
+      bestand_gesamt,
+      bestand_defekt,
+      bestand_in_wartung
+    } = validation.payload;
     const naechsteWartungAm = calculateNextMaintenanceDate(letzte_wartung_am, wartungsintervall_tage);
 
     const result = await pool.query(`
       INSERT INTO werkzeuge (
         name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status,
-        wartungsintervall_tage, letzte_wartung_am, naechste_wartung_am, wartung_notiz
+        wartungsintervall_tage, letzte_wartung_am, naechste_wartung_am, wartung_notiz,
+        bestand_gesamt, bestand_defekt, bestand_in_wartung
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar', $9, $10, $11, $12)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar', $9, $10, $11, $12, $13, $14, $15)
       RETURNING *
     `, [
       name,
@@ -1136,7 +1280,10 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
       wartungsintervall_tage,
       letzte_wartung_am,
       naechsteWartungAm,
-      coerceNullableText(wartung_notiz)
+      coerceNullableText(wartung_notiz),
+      bestand_gesamt || 1,
+      bestand_defekt || 0,
+      bestand_in_wartung || 0
     ]);
 
     await logAdminAudit({
@@ -1145,10 +1292,7 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
       metadata: { toolId: result.rows[0].id, inventarnummer }
     });
 
-    res.status(201).json({
-      ...result.rows[0],
-      wartungsstatus: calculateMaintenanceStatus(result.rows[0].naechste_wartung_am)
-    });
+    res.status(201).json(enrichToolRow(result.rows[0]));
   } catch (err) {
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Inventarnummer bereits vorhanden' });
@@ -1187,8 +1331,11 @@ app.put('/api/werkzeuge/:id', requireAdmin, adminActionLimiter, validateIdParam,
           letzte_wartung_am = $11,
           naechste_wartung_am = $12,
           wartung_notiz = $13,
+          bestand_gesamt = $14,
+          bestand_defekt = $15,
+          bestand_in_wartung = $16,
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $14
+      WHERE id = $17
       RETURNING *
     `, [
       merged.name,
@@ -1204,6 +1351,9 @@ app.put('/api/werkzeuge/:id', requireAdmin, adminActionLimiter, validateIdParam,
       merged.letzte_wartung_am,
       naechsteWartungAm,
       coerceNullableText(merged.wartung_notiz),
+      merged.bestand_gesamt || 1,
+      merged.bestand_defekt || 0,
+      merged.bestand_in_wartung || 0,
       id
     ]);
 
@@ -1213,10 +1363,7 @@ app.put('/api/werkzeuge/:id', requireAdmin, adminActionLimiter, validateIdParam,
       metadata: { toolId: Number(id), inventarnummer: merged.inventarnummer }
     });
 
-    res.json({
-      ...result.rows[0],
-      wartungsstatus: calculateMaintenanceStatus(result.rows[0].naechste_wartung_am)
-    });
+    res.json(enrichToolRow(result.rows[0]));
   } catch (err) {
     if (err.code === '23505') {
       return res.status(400).json({ error: 'Inventarnummer bereits vorhanden' });
@@ -1884,11 +2031,11 @@ app.get('/api/stats', async (req, res) => {
   try {
     const stats = await pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE status = 'verfuegbar') as verfuegbar,
-        COUNT(*) FILTER (WHERE status = 'reserviert') as reserviert,
-        COUNT(*) FILTER (WHERE status = 'ausgeliehen') as ausgeliehen,
-        COUNT(*) FILTER (WHERE status = 'defekt') as defekt,
-        COUNT(*) as gesamt
+        COALESCE(SUM(GREATEST(COALESCE(bestand_gesamt, 1) - COALESCE(bestand_defekt, 0) - COALESCE(bestand_in_wartung, 0), 0)), 0) as verfuegbar,
+        COALESCE(SUM(COALESCE(bestand_gesamt, 1)), 0) as gesamt,
+        COALESCE(SUM(COALESCE(bestand_defekt, 0)), 0) as defekt,
+        COALESCE(SUM(COALESCE(bestand_in_wartung, 0)), 0) as in_wartung,
+        COUNT(*) as werkzeugtypen
       FROM werkzeuge
     `);
 
@@ -1934,7 +2081,11 @@ app.get('/api/stats', async (req, res) => {
     `);
 
     res.json({
-      werkzeuge: stats.rows[0],
+      werkzeuge: {
+        ...stats.rows[0],
+        reserviert: ausleihenStats.rows[0]?.reserviert || 0,
+        ausgeliehen: ausleihenStats.rows[0]?.ausgeliehen || 0
+      },
       ausleihen: ausleihenStats.rows[0],
       schaeden: schadenStats.rows[0],
       wartungen: wartungStats.rows[0],
@@ -2009,7 +2160,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Interner Serverfehler' });
 });
 
-Promise.all([ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchema()])
+Promise.all([ensureInventorySchema(), ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchema()])
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
