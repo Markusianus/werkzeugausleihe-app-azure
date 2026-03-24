@@ -8,7 +8,10 @@ ToolHub wird aktuell als **Dev-/Staging-Projekt** behandelt. Staging und Produkt
 
 ## Staging
 ### Standardweg
-Staging wird **nicht** über GitHub Actions für `develop` deployed.
+Staging wird **nicht** über GitHub Actions deployed.
+
+Der dedizierte Branch dafür heißt ab jetzt **`staged`**.
+Er soll immer exakt den Stand widerspiegeln, der auf die Dev-/Staging-App deployed ist.
 
 Stattdessen ist der Standardweg:
 
@@ -18,6 +21,14 @@ scripts/deploy-staging.sh backend|frontend|all
 
 ### Voraussetzungen
 Die nötigen Azure-Local-Git-Zugangsdaten liegen projektlokal unter `.local/` und dürfen nicht versioniert werden.
+
+Standardpfad für das Staging-Deploy:
+- `.local/staging.env`
+
+Vorlage:
+- `.local/staging.env.example`
+
+Das Deploy-Skript lädt `.local/staging.env` automatisch, sofern vorhanden. Alternativ können die Variablen weiter direkt über die Shell gesetzt werden oder über `LOCAL_ENV_FILE` auf eine andere lokale Env-Datei zeigen.
 
 Benötigte Variablen sind u. a.:
 - `AZURE_STAGING_BACKEND_GIT_URL`
@@ -29,8 +40,8 @@ Benötigte Variablen sind u. a.:
 
 ### Pflicht vor jedem Staging-Deploy
 1. aktiven Branch prüfen
-2. bewusst benennen, welcher Stage-Stand deployed werden soll
-3. prüfen, ob alle erwarteten Fixes im Stage-Stand enthalten sind
+2. sicherstellen, dass `HEAD` auf **`staged`** steht
+3. bewusst benennen, welche abgeschlossenen Issue-Branches bereits in `staged` enthalten sind
 4. Arbeitsverzeichnis auf Nachvollziehbarkeit prüfen
 5. Deploy-Skript ausführen
 6. Healthchecks prüfen
@@ -38,7 +49,7 @@ Benötigte Variablen sind u. a.:
 8. Ergebnis dokumentieren
 
 ### Wichtige Regel
-Nie aus einem zufälligen Arbeitsbranch deployen. Frühere Staging-Fixes dürfen nicht versehentlich überschrieben werden.
+Nie aus einem zufälligen Arbeitsbranch deployen. Deploys auf die Dev-/Staging-App erfolgen nur aus **`staged`**. Frühere Staging-Fixes dürfen nicht versehentlich überschrieben werden.
 
 ## Produktion
 Produktive Deployments sollen nur aus dem produktiven Branch erfolgen und nur über GitHub Actions.
