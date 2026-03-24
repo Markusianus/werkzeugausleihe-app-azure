@@ -215,6 +215,10 @@ function normalizeIsoDate(dateInput) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
+function normalizeDateInput(dateInput) {
+  return normalizeIsoDate(dateInput);
+}
+
 function addDays(isoDate, days) {
   const date = new Date(`${isoDate}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
