@@ -569,11 +569,8 @@ async function ensureEmailSchema() {
       sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_email_notifications_log_type_recipient_unique_day
-    ON email_notifications_log(notification_type, recipient, ((sent_at AT TIME ZONE 'UTC')::date))
-  `);
 }
+
 
 async function ensureAuditLogSchema() {
   await pool.query(`
