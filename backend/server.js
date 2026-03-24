@@ -1310,6 +1310,16 @@ app.get('/api/werkzeuge', async (req, res) => {
     const kategorie = sanitizeText(req.query.kategorie, { maxLength: MAX_TEXT_LENGTH.short });
     const status = sanitizeEnum(req.query.status, ALLOWED_TOOL_STATUSES);
     const search = sanitizeText(req.query.search, { maxLength: MAX_TEXT_LENGTH.medium });
+    const verfuegbarVon = normalizeDateInput(req.query.verfuegbar_von);
+    const verfuegbarBis = normalizeDateInput(req.query.verfuegbar_bis);
+
+    if ((verfuegbarVon && !verfuegbarBis) || (!verfuegbarVon && verfuegbarBis)) {
+      return res.status(400).json({ error: 'Bitte Start- und Enddatum gemeinsam setzen' });
+    }
+
+    if (verfuegbarVon && verfuegbarBis && verfuegbarBis < verfuegbarVon) {
+      return res.status(400).json({ error: 'Das Enddatum muss am oder nach dem Startdatum liegen' });
+    }
 
     let query = `
       SELECT
@@ -1335,6 +1345,24 @@ app.get('/api/werkzeuge', async (req, res) => {
     if (search) {
       params.push(`%${search}%`);
       query += ` AND (name ILIKE $${params.length} OR beschreibung ILIKE $${params.length} OR inventarnummer ILIKE $${params.length})`;
+    }
+
+    if (verfuegbarVon && verfuegbarBis) {
+      params.push(verfuegbarVon);
+      const fromParam = `$${params.length}`;
+      params.push(verfuegbarBis);
+      const toParam = `$${params.length}`;
+      query += `
+        AND w.status NOT IN ('defekt', 'reinigung', 'reparatur')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ausleihen a_conflict
+          WHERE a_conflict.werkzeug_id = w.id
+            AND a_conflict.status IN ('reserviert', 'ausgeliehen')
+            AND a_conflict.datum_von <= ${toParam}::date
+            AND a_conflict.datum_bis >= ${fromParam}::date
+        )
+      `;
     }
 
     query += ' GROUP BY w.id ORDER BY w.name';

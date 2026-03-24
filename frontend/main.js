@@ -13,6 +13,10 @@ let kalenderState = {
 };
 let wartungsverlaufWerkzeugId = null;
 let selectedToolIdsForPdf = new Set();
+let verfuegbarkeitsFilter = {
+    von: '',
+    bis: ''
+};
 
 // ==================== Initialization ====================
 
@@ -249,15 +253,19 @@ async function showWerkzeugDetail(id) {
 
 async function loadWerkzeuge(filter = {}) {
     try {
-        let endpoint = '/werkzeuge?';
-        if (filter.kategorie) endpoint += `kategorie=${encodeURIComponent(filter.kategorie)}&`;
-        if (filter.search) endpoint += `search=${encodeURIComponent(filter.search)}&`;
+        const params = new URLSearchParams();
+        if (filter.kategorie) params.set('kategorie', filter.kategorie);
+        if (filter.search) params.set('search', filter.search);
+        if (filter.von) params.set('verfuegbar_von', filter.von);
+        if (filter.bis) params.set('verfuegbar_bis', filter.bis);
 
+        const endpoint = `/werkzeuge?${params.toString()}`;
         const werkzeuge = await apiCall(endpoint);
         const container = document.getElementById('werkzeugeList');
         container.innerHTML = '';
 
         updateKategorieFilter(werkzeuge);
+        updateVerfuegbarkeitsHinweis(filter, werkzeuge.length);
 
         if (werkzeuge.length === 0) {
             container.innerHTML = '<p style="text-align:center;padding:40px;">Keine Werkzeuge gefunden</p>';
@@ -270,6 +278,10 @@ async function loadWerkzeuge(filter = {}) {
 
             const isVerfuegbar = Number(w.verfuegbare_einheiten ?? 0) > 0;
             const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
+            const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
+            const verfuegbarkeitsBadge = isZeitraumGefiltert
+                ? '<div style="margin-top:8px;"><span class="status-badge status-verfuegbar">🗓️ Im Zeitraum verfügbar</span></div>'
+                : '';
 
             card.innerHTML = `
                 ${w.foto ? `<img src="${w.foto}" alt="${escapeHtml(w.name)}">` : ''}
@@ -283,6 +295,7 @@ async function loadWerkzeuge(filter = {}) {
                         ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
                     </div>
                     ${statusBadge}
+                    ${verfuegbarkeitsBadge}
                     <div style="margin-top:8px;">${getInventorySummaryHtml(w, { compact: true })}</div>
                     <div style="margin-top:8px;">${getWartungsStatusBadge(w)}</div>
                 </div>
@@ -296,6 +309,8 @@ async function loadWerkzeuge(filter = {}) {
             container.appendChild(card);
         });
     } catch (err) {
+        const message = err?.message || 'Fehler beim Laden der Werkzeuge';
+        updateVerfuegbarkeitsHinweis(filter, 0, message);
         showToast('❌ Fehler beim Laden der Werkzeuge');
         console.error(err);
     }
@@ -318,6 +333,26 @@ function updateKategorieFilter(werkzeuge) {
         if (kategorie === aktuelleAuswahl) option.selected = true;
         select.appendChild(option);
     });
+}
+
+function updateVerfuegbarkeitsHinweis(filter = {}, count = 0, errorMessage = '') {
+    const hint = document.getElementById('verfuegbarkeitsHinweis');
+    if (!hint) return;
+
+    if (errorMessage) {
+        hint.textContent = `⚠️ ${errorMessage}`;
+        hint.style.color = '#b91c1c';
+        return;
+    }
+
+    if (filter.von && filter.bis) {
+        hint.textContent = `${count} Werkzeug${count === 1 ? '' : 'e'} sind vom ${formatDate(filter.von)} bis ${formatDate(filter.bis)} vollständig verfügbar.`;
+        hint.style.color = '#065f46';
+        return;
+    }
+
+    hint.textContent = 'Optional Zeitraum wählen, um nur im gesamten Einsatzfenster verfügbare Werkzeuge zu sehen.';
+    hint.style.color = '#6b7280';
 }
 
 function getStatusBadge(status) {
@@ -1594,7 +1629,30 @@ function closeModal(modalId) {
 function filterWerkzeuge() {
     const kategorie = document.getElementById('kategorieFilter')?.value || '';
     const search = document.getElementById('searchInput')?.value || '';
-    loadWerkzeuge({ kategorie, search });
+    const von = document.getElementById('verfuegbarVon')?.value || '';
+    const bis = document.getElementById('verfuegbarBis')?.value || '';
+
+    if ((von && !bis) || (!von && bis)) {
+        updateVerfuegbarkeitsHinweis({}, 0, 'Bitte Start- und Enddatum gemeinsam setzen.');
+        return;
+    }
+
+    if (von && bis && new Date(bis) < new Date(von)) {
+        updateVerfuegbarkeitsHinweis({}, 0, 'Das Enddatum muss am oder nach dem Startdatum liegen.');
+        return;
+    }
+
+    verfuegbarkeitsFilter = { von, bis };
+    loadWerkzeuge({ kategorie, search, von, bis });
+}
+
+function resetVerfuegbarkeitsFilter() {
+    const vonInput = document.getElementById('verfuegbarVon');
+    const bisInput = document.getElementById('verfuegbarBis');
+    if (vonInput) vonInput.value = '';
+    if (bisInput) bisInput.value = '';
+    verfuegbarkeitsFilter = { von: '', bis: '' };
+    filterWerkzeuge();
 }
 
 function filterAusleihen() {
@@ -1615,6 +1673,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('kalenderStart')?.setAttribute('value', kalenderState.startDate);
     document.getElementById('reservierungVon')?.setAttribute('min', today);
     document.getElementById('reservierungBis')?.setAttribute('min', today);
+    document.getElementById('verfuegbarVon')?.setAttribute('min', today);
+    document.getElementById('verfuegbarBis')?.setAttribute('min', today);
 
     initApp();
 

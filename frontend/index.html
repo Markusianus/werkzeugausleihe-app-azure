@@ -579,14 +579,20 @@
             <div id="mitarbeiterMode">
                 <section class="section">
                     <h2>Werkzeuge finden</h2>
-                    <div class="toolbar">
-                        <div class="search-bar" style="width:100%;">
+                    <div class="toolbar" style="align-items:flex-end; gap:16px; flex-wrap:wrap;">
+                        <div class="search-bar" style="flex:2 1 320px; min-width:min(100%, 320px);">
                             <input type="text" id="searchInput" placeholder="Suche..." oninput="filterWerkzeuge()">
                             <select id="kategorieFilter" onchange="filterWerkzeuge()">
                                 <option value="">Alle Kategorien</option>
                             </select>
                         </div>
+                        <div class="search-bar" style="flex:3 1 420px; min-width:min(100%, 420px);">
+                            <input type="date" id="verfuegbarVon" onchange="filterWerkzeuge()">
+                            <input type="date" id="verfuegbarBis" onchange="filterWerkzeuge()">
+                            <button class="btn-secondary" onclick="resetVerfuegbarkeitsFilter()">Zurücksetzen</button>
+                        </div>
                     </div>
+                    <p id="verfuegbarkeitsHinweis" style="color:#6b7280; margin:8px 0 0 0;">Optional Zeitraum wählen, um nur im gesamten Einsatzfenster verfügbare Werkzeuge zu sehen.</p>
                     <div id="werkzeugeList" class="dashboard"></div>
                 </section>
 
