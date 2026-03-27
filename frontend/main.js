@@ -1554,9 +1554,7 @@ const IMPORT_HEADERS = [
 
 const REQUIRED_IMPORT_HEADERS = [
     'Werkzeug',
-    'Beschreibung',
     'Inventarnummer',
-    'Kategorie',
     'Lagerplatz'
 ];
 
@@ -1632,9 +1630,7 @@ function validateImportRow(parts, rowNumber) {
     const errors = [];
 
     if (!data.name) errors.push('Pflichtfeld „Werkzeug“ fehlt');
-    if (!data.beschreibung) errors.push('Pflichtfeld „Beschreibung“ fehlt');
     if (!data.inventarnummer) errors.push('Pflichtfeld „Inventarnummer“ fehlt');
-    if (!data.kategorie) errors.push('Pflichtfeld „Kategorie“ fehlt');
     if (!data.lagerplatz) errors.push('Pflichtfeld „Lagerplatz“ fehlt');
 
     if (data.wartungsintervall_tage && !/^\d+$/.test(data.wartungsintervall_tage)) {
