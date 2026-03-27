@@ -559,24 +559,24 @@ function renderMeineAusleihen(ausleihen, mitarbeiterName) {
         const isUeberfaellig = a.status === 'ausgeliehen' && a.datum_bis && new Date(a.datum_bis) < new Date();
         const dateRange = `${formatDate(a.datum_von)} – ${formatDate(a.datum_bis)}`;
         const extraHint = a.status === 'reserviert'
-            ? '<p style="margin-top:8px;font-size:0.9em;opacity:0.9;">Noch nicht ausgegeben</p>'
+            ? '<p style="margin-top:8px;font-size:0.9em;color:rgba(255,255,255,0.88);">Noch nicht ausgegeben</p>'
             : (isUeberfaellig
-                ? '<p style="margin-top:8px;font-size:0.9em;color:#fecaca;">⚠️ Rückgabe überfällig</p>'
-                : '<p style="margin-top:8px;font-size:0.9em;opacity:0.9;">Aktuell ausgeliehen</p>');
+                ? '<p style="margin-top:8px;font-size:0.9em;color:#fee2e2;font-weight:600;">⚠️ Rückgabe überfällig</p>'
+                : '<p style="margin-top:8px;font-size:0.9em;color:rgba(255,255,255,0.88);">Aktuell ausgeliehen</p>');
 
         card.innerHTML = `
             <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
                 <div>
                     <div style="font-size:1.6em; margin-bottom:8px;">${escapeHtml(a.icon || '🔧')}</div>
-                    <h3 style="font-size:1.2em; margin-bottom:6px;">${escapeHtml(a.werkzeug_name)}</h3>
-                    <p style="font-size:0.9em; opacity:0.9;">${escapeHtml(a.inventarnummer || '-')}</p>
+                    <h3 style="font-size:1.2em; margin-bottom:6px; color:#ffffff; line-height:1.3;">${escapeHtml(a.werkzeug_name)}</h3>
+                    <p style="font-size:0.9em; color:rgba(255,255,255,0.78); margin:0;">${escapeHtml(a.inventarnummer || '-')}</p>
                 </div>
                 <div>${getAusleiheStatusBadge(a.status)}</div>
             </div>
-            <div style="margin-top:14px; font-size:0.95em; line-height:1.5;">
-                <div><strong>Zeitraum:</strong> ${escapeHtml(dateRange)}</div>
-                ${a.reserviert_am ? `<div><strong>Reserviert am:</strong> ${escapeHtml(formatDate(a.reserviert_am))}</div>` : ''}
-                ${a.ausgeliehen_am ? `<div><strong>Ausgegeben am:</strong> ${escapeHtml(formatDate(a.ausgeliehen_am))}</div>` : ''}
+            <div style="margin-top:14px; font-size:0.95em; line-height:1.5; color:#f3f4f6;">
+                <div><strong style="color:#ffffff;">Zeitraum:</strong> ${escapeHtml(dateRange)}</div>
+                ${a.reserviert_am ? `<div><strong style="color:#ffffff;">Reserviert am:</strong> ${escapeHtml(formatDate(a.reserviert_am))}</div>` : ''}
+                ${a.ausgeliehen_am ? `<div><strong style="color:#ffffff;">Ausgegeben am:</strong> ${escapeHtml(formatDate(a.ausgeliehen_am))}</div>` : ''}
             </div>
             ${extraHint}
         `;
