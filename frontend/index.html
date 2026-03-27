@@ -324,6 +324,12 @@
             border-radius: 5px;
         }
 
+        .werkzeug-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
         .werkzeug-card {
             border: 1px solid #e5e7eb;
             border-radius: 14px;
@@ -334,12 +340,6 @@
             grid-template-columns: auto minmax(0, 1fr) auto;
             gap: 16px;
             align-items: center;
-        }
-
-        .werkzeug-list {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
         }
 
         .werkzeug-card-visual {
@@ -353,6 +353,13 @@
             justify-content: center;
             font-size: 1.6rem;
             flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .werkzeug-card-visual img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         .werkzeug-card-main {
@@ -421,14 +428,6 @@
             height: 18px;
             accent-color: #7c3aed;
             cursor: pointer;
-        }
-
-        .werkzeug-card img {
-            width: 100%;
-            height: 180px;
-            object-fit: cover;
-            border-radius: 10px;
-            background: #f3f4f6;
         }
 
         .werkzeug-icon { font-size: 2rem; }

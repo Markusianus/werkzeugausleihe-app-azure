@@ -280,30 +280,38 @@ async function loadWerkzeuge(filter = {}) {
             const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
             const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
             const verfuegbarkeitsBadge = isZeitraumGefiltert
-                ? '<div style="margin-top:8px;"><span class="status-badge status-verfuegbar">🗓️ Im Zeitraum verfügbar</span></div>'
+                ? '<span class="status-badge status-verfuegbar">🗓️ Im Zeitraum verfügbar</span>'
                 : '';
+            const visual = w.foto
+                ? `<div class="werkzeug-card-visual"><img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}"></div>`
+                : `<div class="werkzeug-card-visual">${escapeHtml(w.icon || '🔧')}</div>`;
 
             card.innerHTML = `
-                ${w.foto ? `<img src="${w.foto}" alt="${escapeHtml(w.name)}">` : ''}
-                <div class="werkzeug-icon">${escapeHtml(w.icon || '🔧')}</div>
-                <div class="werkzeug-info">
-                    <h3>${escapeHtml(w.name)}</h3>
-                    <p>${escapeHtml(w.beschreibung || '')}</p>
+                ${visual}
+                <div class="werkzeug-card-main">
+                    <div class="werkzeug-card-header">
+                        <div class="werkzeug-card-title">
+                            <h3>${escapeHtml(w.name)}</h3>
+                            <div class="werkzeug-card-subline">${escapeHtml(w.inventarnummer || '-')}</div>
+                        </div>
+                        <div>${statusBadge}</div>
+                    </div>
+                    ${w.beschreibung ? `<div class="werkzeug-card-description">${escapeHtml(w.beschreibung)}</div>` : ''}
                     <div class="werkzeug-meta">
-                        <span>📦 ${escapeHtml(w.inventarnummer)}</span>
                         ${w.kategorie ? `<span>🏷️ ${escapeHtml(w.kategorie)}</span>` : ''}
                         ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
+                        ${verfuegbarkeitsBadge}
                     </div>
-                    ${statusBadge}
-                    ${verfuegbarkeitsBadge}
-                    <div style="margin-top:8px;">${getInventorySummaryHtml(w, { compact: true })}</div>
-                    <div style="margin-top:8px;">${getWartungsStatusBadge(w)}</div>
+                    <div>${getInventorySummaryHtml(w, { compact: true })}</div>
+                    <div>${getWartungsStatusBadge(w)}</div>
                 </div>
-                <button class="btn-secondary" onclick="showWerkzeugDetail(${w.id})">ℹ️ Details</button>
-                <button class="btn-primary" onclick="addToWarenkorb(${w.id})" ${!isVerfuegbar ? 'disabled' : ''}>
-                    ${isVerfuegbar ? '➕ In den Warenkorb' : 'Nicht verfügbar'}
-                </button>
-                <button class="btn-warning btn-small" onclick="showSchadenMelden(${w.id})">🔧 Schaden melden</button>
+                <div class="werkzeug-card-actions">
+                    <button class="btn-primary" onclick="addToWarenkorb(${w.id})" ${!isVerfuegbar ? 'disabled' : ''}>
+                        ${isVerfuegbar ? '➕ In den Warenkorb' : 'Nicht verfügbar'}
+                    </button>
+                    <button class="btn-secondary" onclick="showWerkzeugDetail(${w.id})">ℹ️ Details</button>
+                    <button class="btn-warning btn-small" onclick="showSchadenMelden(${w.id})">🔧 Schaden melden</button>
+                </div>
             `;
 
             container.appendChild(card);
