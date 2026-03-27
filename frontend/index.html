@@ -23,6 +23,17 @@
             border-radius: 15px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             overflow: hidden;
+            position: relative;
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                linear-gradient(135deg, rgba(124, 58, 237, 0.08) 0, rgba(124, 58, 237, 0.08) 18px, transparent 18px) top right / 140px 140px no-repeat,
+                linear-gradient(315deg, rgba(147, 51, 234, 0.05) 0, rgba(147, 51, 234, 0.05) 14px, transparent 14px) top 86px right 24px / 96px 96px no-repeat;
         }
 
         .header {
@@ -33,6 +44,50 @@
             justify-content: space-between;
             align-items: center;
             gap: 16px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            top: -34px;
+            right: 22px;
+            width: 132px;
+            height: 132px;
+            background: linear-gradient(180deg, rgba(216, 180, 254, 0.3), rgba(167, 139, 250, 0.08));
+            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+            filter: drop-shadow(0 10px 24px rgba(0,0,0,0.22));
+        }
+
+        .brand-mark {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .brand-mark-icon {
+            width: 22px;
+            height: 22px;
+            background: linear-gradient(180deg, #d8b4fe 0%, #a855f7 100%);
+            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+            box-shadow: 0 0 18px rgba(216, 180, 254, 0.3);
+            flex-shrink: 0;
+        }
+
+        .brand-mark-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .brand-overline {
+            font-size: 0.72rem;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: rgba(233, 213, 255, 0.9);
         }
 
         .header h1 { font-size: 1.8em; }
@@ -221,7 +276,23 @@
             color: #7c3aed;
         }
 
-        .section { margin-top: 30px; }
+        .section {
+            margin-top: 30px;
+            position: relative;
+        }
+
+        .section::before {
+            content: '';
+            position: absolute;
+            top: -8px;
+            left: -6px;
+            width: 14px;
+            height: 14px;
+            background: linear-gradient(180deg, rgba(192, 132, 252, 0.9), rgba(124, 58, 237, 0.8));
+            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+            opacity: 0.85;
+        }
+
         .hidden { display: none; }
         .loading { text-align: center; padding: 40px; font-size: 1.1em; color: #9333ea; }
 
@@ -332,9 +403,10 @@
 
         .werkzeug-card {
             border: 1px solid #e5e7eb;
+            border-left: 3px solid #a855f7;
             border-radius: 12px;
             padding: 12px 14px;
-            background: white;
+            background: linear-gradient(90deg, rgba(250, 245, 255, 0.7) 0%, #ffffff 16%, #ffffff 100%);
             box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
             display: grid;
             grid-template-columns: auto minmax(0, 1.35fr) minmax(150px, 0.95fr) auto;
@@ -441,7 +513,21 @@
             padding: 12px 14px;
             border: 1px solid #e9d5ff;
             border-radius: 12px;
-            background: #faf5ff;
+            background: linear-gradient(135deg, #faf5ff 0%, #ffffff 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .selection-toolbar::after {
+            content: '';
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 22px;
+            height: 22px;
+            background: rgba(147, 51, 234, 0.14);
+            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
         }
 
         .selection-summary {
@@ -658,6 +744,8 @@
             .content { padding: 18px; }
             .date-inputs, .form-row { grid-template-columns: 1fr; }
             .header { padding: 18px; }
+            .header::after { width: 96px; height: 96px; top: -22px; right: 10px; }
+            .brand-overline { font-size: 0.64rem; }
             .kalender-header { padding: 16px; }
             .werkzeug-card {
                 grid-template-columns: 1fr;
@@ -677,7 +765,13 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1>ToolHub</h1>
+            <div class="brand-mark">
+                <span class="brand-mark-icon" aria-hidden="true"></span>
+                <div class="brand-mark-text">
+                    <span class="brand-overline">Triangle Systems</span>
+                    <h1>ToolHub</h1>
+                </div>
+            </div>
             <div class="mode-toggle">
                 <button id="mitarbeiterBtn" class="btn-primary" onclick="switchMode('mitarbeiter')">Mitarbeiter</button>
                 <button id="adminBtn" class="btn-secondary" onclick="switchMode('admin')">Admin</button>
