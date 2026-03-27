@@ -1625,8 +1625,7 @@ function validateImportHeaders(headerRow) {
     };
 }
 
-function validateImportRow(parts, rowNumber) {
-    const data = rowToWerkzeugPayload(parts);
+function validateImportRow(data, rowNumber) {
     const errors = [];
 
     if (!data.name) errors.push('Pflichtfeld „Werkzeug“ fehlt');
@@ -1684,18 +1683,24 @@ async function readImportRows(file) {
     };
 }
 
-function rowToWerkzeugPayload(parts) {
+function rowToWerkzeugPayload(parts, headerMap = null) {
+    const getValue = (headerName, fallbackIndex) => {
+        const index = headerMap?.[headerName];
+        const resolvedIndex = Number.isInteger(index) ? index : fallbackIndex;
+        return normalizeImportCell(parts[resolvedIndex]);
+    };
+
     return {
-        name: normalizeImportCell(parts[0]),
-        beschreibung: normalizeImportCell(parts[1]),
-        zustand: normalizeImportCell(parts[2]),
-        inventarnummer: normalizeImportCell(parts[3]),
-        kategorie: normalizeImportCell(parts[4]),
-        lagerplatz: normalizeImportCell(parts[5]),
-        status: normalizeImportCell(parts[6]),
-        wartungsintervall_tage: normalizeImportCell(parts[7]),
-        letzte_wartung_am: normalizeImportCell(parts[8]),
-        wartung_notiz: normalizeImportCell(parts[10])
+        name: getValue('Werkzeug', 0),
+        beschreibung: getValue('Beschreibung', 1),
+        zustand: getValue('Zustand', 2),
+        inventarnummer: getValue('Inventarnummer', 3),
+        kategorie: getValue('Kategorie', 4),
+        lagerplatz: getValue('Lagerplatz', 5),
+        status: getValue('Status', 6),
+        wartungsintervall_tage: getValue('WartungsintervallTage', 7),
+        letzte_wartung_am: getValue('LetzteWartung', 8),
+        wartung_notiz: getValue('Wartungsnotiz', 10)
     };
 }
 
@@ -1736,9 +1741,13 @@ async function importCSV(event) {
             fileErrors.push(...headerValidation.errors);
         }
 
+        const normalizedHeader = IMPORT_HEADERS.map((_, index) => normalizeImportCell(header[index]));
+        const headerMap = Object.fromEntries(normalizedHeader.map((name, index) => [name, index]));
+
         const validRows = [];
         rows.forEach((row, index) => {
-            const validation = validateImportRow(row, index + 2);
+            const data = rowToWerkzeugPayload(row, headerMap);
+            const validation = validateImportRow(data, index + 2);
             if (validation.valid) {
                 validRows.push(validation.data);
             } else {
