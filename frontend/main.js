@@ -1536,7 +1536,7 @@ async function deleteSchaden(id) {
     }
 }
 
-// ==================== CSV Import/Export ====================
+// ==================== CSV / Excel Import/Export ====================
 
 async function exportCSV() {
     try {
@@ -1557,49 +1557,106 @@ function showImportCSV() {
     document.getElementById('importModal').classList.add('active');
 }
 
+function parseCsvLine(line) {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const next = line[i + 1];
+
+        if (char === '"') {
+            if (inQuotes && next === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+
+    result.push(current.trim());
+    return result;
+}
+
+async function readImportRows(file) {
+    const fileName = file.name.toLowerCase();
+
+    if (fileName.endsWith('.xlsx')) {
+        if (typeof XLSX === 'undefined') {
+            throw new Error('Excel-Import ist aktuell nicht geladen. Bitte Seite neu laden und erneut versuchen.');
+        }
+
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+        return rows.slice(1).filter(row => row.some(cell => String(cell || '').trim()));
+    }
+
+    const text = await file.text();
+    return text
+        .split(/\r?\n/)
+        .slice(1)
+        .filter(line => line.trim())
+        .map(parseCsvLine);
+}
+
+function rowToWerkzeugPayload(parts) {
+    return {
+        name: String(parts[0] || '').trim(),
+        beschreibung: String(parts[1] || '').trim(),
+        zustand: String(parts[2] || '').trim(),
+        inventarnummer: String(parts[3] || '').trim(),
+        kategorie: String(parts[4] || '').trim(),
+        lagerplatz: String(parts[5] || '').trim(),
+        status: String(parts[6] || '').trim(),
+        wartungsintervall_tage: String(parts[7] || '').trim(),
+        letzte_wartung_am: String(parts[8] || '').trim(),
+        wartung_notiz: String(parts[10] || '').trim()
+    };
+}
+
 async function importCSV(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    const text = await file.text();
-    const lines = text.split('\n').slice(1);
-
     let imported = 0;
     let errors = 0;
 
-    for (const line of lines) {
-        if (!line.trim()) continue;
+    try {
+        const rows = await readImportRows(file);
 
-        const parts = line.split(',').map(p => p.replace(/^"|"$/g, '').trim());
-        if (parts.length < 4) continue;
+        for (const row of rows) {
+            const data = rowToWerkzeugPayload(row);
+            if (!data.name || !data.inventarnummer) continue;
 
-        const data = {
-            name: parts[0],
-            beschreibung: parts[1],
-            zustand: parts[2],
-            inventarnummer: parts[3],
-            kategorie: parts[4] || '',
-            lagerplatz: parts[5] || '',
-            wartungsintervall_tage: parts[7] || '',
-            letzte_wartung_am: parts[8] || '',
-            wartung_notiz: parts[10] || ''
-        };
-
-        try {
-            await apiCall('/werkzeuge', {
-                method: 'POST',
-                body: JSON.stringify(data)
-            });
-            imported++;
-        } catch (err) {
-            console.error('Fehler bei:', data.name, err);
-            errors++;
+            try {
+                await apiCall('/werkzeuge', {
+                    method: 'POST',
+                    body: JSON.stringify(data)
+                });
+                imported++;
+            } catch (err) {
+                console.error('Fehler bei:', data.name, err);
+                errors++;
+            }
         }
-    }
 
-    showToast(`✓ Import abgeschlossen: ${imported} erfolgreich, ${errors} Fehler`);
-    closeModal('importModal');
-    loadDashboard();
+        showToast(`✓ Import abgeschlossen: ${imported} erfolgreich, ${errors} Fehler`);
+        closeModal('importModal');
+        event.target.value = '';
+        loadDashboard();
+    } catch (err) {
+        event.target.value = '';
+        alert('Fehler beim Import: ' + err.message);
+    }
 }
 
 // ==================== Helper Functions ====================

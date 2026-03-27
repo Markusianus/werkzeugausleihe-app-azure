@@ -1,0 +1,4 @@
+Werkzeug,Beschreibung,Zustand,Inventarnummer,Kategorie,Lagerplatz,Status,WartungsintervallTage,LetzteWartung,NaechsteWartung,Wartungsnotiz
+Akkuschrauber 18V,Leistungsstarker Akkuschrauber mit 2 Akkus,Gut,AKKU-001,Elektrowerkzeuge,Lager A-01,verfuegbar,180,2026-02-15,,DGUV-Prüfung halbjährlich
+Bohrhammer SDS Plus,Für Beton und Mauerwerk,Neu,BOHR-014,Baustelle,Lager B-03,verfuegbar,365,2026-01-10,,Sichtprüfung vor Ausgabe
+Leiter 3m,Alu-Stehleiter mit 6 Stufen,Geprüft,LEIT-007,Steiggeräte,Lager C-02,verfuegbar,90,2026-03-01,,Auf Beschädigungen prüfen

@@ -1027,11 +1027,16 @@
             <div class="modal-content">
                 <h2>Import / Export</h2>
                 <div class="form-group">
-                    <label for="importFile" class="file-input-label">CSV importieren</label>
-                    <input type="file" id="importFile" accept="text/csv" onchange="importCSV(event)">
+                    <label for="importFile" class="file-input-label">CSV oder Excel importieren</label>
+                    <input type="file" id="importFile" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onchange="importCSV(event)">
+                    <p style="margin-top:8px;color:#6b7280;font-size:0.9em;line-height:1.45;">
+                        Unterstützte Formate: <strong>CSV</strong> und <strong>Excel (.xlsx)</strong>.<br>
+                        Erwartete Spaltenreihenfolge: Werkzeug, Beschreibung, Zustand, Inventarnummer, Kategorie, Lagerplatz, Status, WartungsintervallTage, LetzteWartung, NaechsteWartung, Wartungsnotiz.
+                    </p>
                 </div>
-                <div class="form-group">
+                <div class="form-group" style="display:flex;gap:10px;flex-wrap:wrap;">
                     <button class="btn-primary" onclick="exportCSV()">CSV exportieren</button>
+                    <a class="btn-secondary" href="werkzeuge-import-muster.csv" download="werkzeuge-import-muster.csv" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">Mustertabelle herunterladen</a>
                     <button class="btn-secondary" onclick="closeModal('importModal')">Schließen</button>
                 </div>
             </div>
@@ -1039,6 +1044,7 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="main.js"></script>
 </body>
 </html>
