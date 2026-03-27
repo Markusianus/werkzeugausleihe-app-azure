@@ -72,6 +72,12 @@ Dafür gibt es jetzt das Skript:
 scripts/deploy-staging.sh backend|frontend|all
 ```
 
+Standardweg für Credentials:
+- lokale Datei `.local/staging.env`
+- Vorlage: `.local/staging.env.example`
+
+Das Skript lädt `.local/staging.env` automatisch, falls die Datei vorhanden ist. Alternativ können die Variablen weiterhin direkt in der Shell gesetzt werden.
+
 Benötigte Umgebungsvariablen:
 
 ```bash

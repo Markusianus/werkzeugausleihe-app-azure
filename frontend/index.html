@@ -330,9 +330,66 @@
             padding: 18px;
             background: white;
             box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .werkzeug-list {
             display: flex;
             flex-direction: column;
             gap: 12px;
+        }
+
+        .werkzeug-card-visual {
+            width: 52px;
+            height: 52px;
+            border-radius: 12px;
+            background: #f5f3ff;
+            color: #6d28d9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.6rem;
+            flex-shrink: 0;
+        }
+
+        .werkzeug-card-main {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .werkzeug-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .werkzeug-card-title h3 {
+            margin-bottom: 4px;
+        }
+
+        .werkzeug-card-subline {
+            color: #6b7280;
+            font-size: 0.92em;
+        }
+
+        .werkzeug-card-description {
+            color: #4b5563;
+            line-height: 1.45;
+        }
+
+        .werkzeug-card-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: stretch;
+            min-width: 150px;
         }
 
         .selection-toolbar {
@@ -381,7 +438,6 @@
             display: flex;
             flex-wrap: wrap;
             gap: 8px;
-            margin-top: 10px;
             color: #6b7280;
             font-size: 0.9em;
         }
@@ -562,6 +618,13 @@
             .date-inputs, .form-row { grid-template-columns: 1fr; }
             .header { padding: 18px; }
             .kalender-header { padding: 16px; }
+            .werkzeug-card {
+                grid-template-columns: 1fr;
+                align-items: stretch;
+            }
+            .werkzeug-card-actions {
+                min-width: 0;
+            }
         }
     </style>
 </head>
@@ -593,7 +656,7 @@
                         </div>
                     </div>
                     <p id="verfuegbarkeitsHinweis" style="color:#6b7280; margin:8px 0 0 0;">Optional Zeitraum wählen, um nur im gesamten Einsatzfenster verfügbare Werkzeuge zu sehen.</p>
-                    <div id="werkzeugeList" class="dashboard"></div>
+                    <div id="werkzeugeList" class="werkzeug-list"></div>
                 </section>
 
                 <section class="section">

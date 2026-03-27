@@ -18,6 +18,7 @@ ToolHub besteht aus getrenntem Backend und Frontend.
 
 ## Cloud-/Staging-Prinzipien
 - Staging-Deploys erfolgen per `scripts/deploy-staging.sh`
+- Das Skript lädt standardmäßig `.local/staging.env`; Shell-Variablen bleiben als Override möglich
 - Region-spezifische Azure-Hosts sind als funktionierende Ziel-URLs zu bevorzugen
 - Kurze generische `*.azurewebsites.net`-Namen waren in der Vergangenheit nicht immer zuverlässig
 

@@ -18,7 +18,11 @@ Required environment variables:
   AZURE_STAGING_FRONTEND_GIT_USERNAME
   AZURE_STAGING_FRONTEND_GIT_PASSWORD
 
+Default local source for these variables:
+  .local/staging.env
+
 Optional environment variables:
+  LOCAL_ENV_FILE       (override path to env file; default: .local/staging.env)
   BACKEND_HEALTH_URL   (default: https://toolhub-backend-staging-ftf4eahwb7fkfshg.germanywestcentral-01.azurewebsites.net/api/health)
   FRONTEND_URL         (default: https://toolhub-frontend-staging-c3b0e3ctc4g5b9f3.germanywestcentral-01.azurewebsites.net/)
   FRONTEND_CONFIG_URL  (default: https://toolhub-frontend-staging-c3b0e3ctc4g5b9f3.germanywestcentral-01.azurewebsites.net/config.js)
@@ -40,9 +44,25 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
+LOCAL_ENV_FILE="${LOCAL_ENV_FILE:-$ROOT_DIR/.local/staging.env}"
+
 BACKEND_HEALTH_URL="${BACKEND_HEALTH_URL:-https://toolhub-backend-staging-ftf4eahwb7fkfshg.germanywestcentral-01.azurewebsites.net/api/health}"
 FRONTEND_URL="${FRONTEND_URL:-https://toolhub-frontend-staging-c3b0e3ctc4g5b9f3.germanywestcentral-01.azurewebsites.net/}"
 FRONTEND_CONFIG_URL="${FRONTEND_CONFIG_URL:-https://toolhub-frontend-staging-c3b0e3ctc4g5b9f3.germanywestcentral-01.azurewebsites.net/config.js}"
+
+load_local_env() {
+  if [[ -f "$LOCAL_ENV_FILE" ]]; then
+    echo "== Loading staging env from $LOCAL_ENV_FILE =="
+    set -a
+    # shellcheck disable=SC1090
+    source "$LOCAL_ENV_FILE"
+    set +a
+  else
+    echo "== No local staging env file found at $LOCAL_ENV_FILE (using current environment) =="
+  fi
+}
+
+load_local_env
 
 require_var() {
   local name="$1"
