@@ -116,6 +116,8 @@ async function initDatabase() {
         id SERIAL PRIMARY KEY,
         werkzeug_id INTEGER NOT NULL,
         mitarbeiter_name TEXT,
+        mitarbeiter_email TEXT,
+        projektnummer TEXT,
         datum_von DATE,
         datum_bis DATE,
         reserviert_am TIMESTAMP,

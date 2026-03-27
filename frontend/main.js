@@ -425,6 +425,10 @@ async function showWarenkorb() {
                 <label>E-Mail für Bestätigungen (optional)</label>
                 <input type="email" id="reservierungEmail" placeholder="max.mustermann@firma.de">
             </div>
+            <div class="form-group">
+                <label>Projektnummer *</label>
+                <input type="text" id="reservierungProjektnummer" placeholder="T-12345" pattern="T-[0-9]{5}" title="Format: T-12345">
+            </div>
             <div class="form-row">
                 <div class="form-group">
                     <label>Von *</label>
@@ -461,11 +465,19 @@ function removeFromWarenkorb(werkzeugId) {
 async function submitReservierung() {
     const name = document.getElementById('reservierungName').value;
     const email = document.getElementById('reservierungEmail').value;
+    const projektnummerInput = document.getElementById('reservierungProjektnummer');
+    const projektnummer = (projektnummerInput?.value || '').trim().toUpperCase();
     const von = document.getElementById('reservierungVon').value;
     const bis = document.getElementById('reservierungBis').value;
 
-    if (!name || !von || !bis) {
-        alert('Bitte alle Felder ausfüllen!');
+    if (!name || !projektnummer || !von || !bis) {
+        alert('Bitte alle Pflichtfelder ausfüllen!');
+        return;
+    }
+
+    if (!/^T-\d{5}$/.test(projektnummer)) {
+        alert('Die Projektnummer muss dem Format T-12345 entsprechen!');
+        projektnummerInput?.focus();
         return;
     }
 
@@ -481,6 +493,7 @@ async function submitReservierung() {
                 werkzeuge: warenkorb,
                 mitarbeiter_name: name,
                 mitarbeiter_email: email,
+                projektnummer,
                 datum_von: von,
                 datum_bis: bis
             })
@@ -1181,6 +1194,7 @@ async function loadAusleihen() {
                 <tr>
                     <th>Werkzeug</th>
                     <th>Mitarbeiter</th>
+                    <th>Projektnummer</th>
                     <th>Zeitraum</th>
                     <th>Status</th>
                     <th>Aktionen</th>
@@ -1201,6 +1215,7 @@ async function loadAusleihen() {
             row.innerHTML = `
                 <td>${escapeHtml(a.werkzeug_name)} (${escapeHtml(a.inventarnummer)})</td>
                 <td>${escapeHtml(a.mitarbeiter_name || '-')}</td>
+                <td>${escapeHtml(a.projektnummer || '-')}</td>
                 <td>${escapeHtml(formatDate(a.datum_von))} - ${escapeHtml(formatDate(a.datum_bis))}</td>
                 <td>${getAusleiheStatusBadge(a.status)} ${ueberfaelligBadge}</td>
                 <td>

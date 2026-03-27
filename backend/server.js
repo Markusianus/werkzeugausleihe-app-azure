@@ -407,6 +407,7 @@ function validateBookingPayload(body) {
   const errors = [];
   const mitarbeiter_name = sanitizeText(body.mitarbeiter_name, { maxLength: MAX_TEXT_LENGTH.medium });
   const mitarbeiter_email = normalizeEmail(body.mitarbeiter_email);
+  const projektnummer = sanitizeText(body.projektnummer, { maxLength: MAX_TEXT_LENGTH.short });
   const datum_von = normalizeIsoDate(body.datum_von);
   const datum_bis = normalizeIsoDate(body.datum_bis);
   const werkzeuge = Array.isArray(body.werkzeuge)
@@ -415,6 +416,11 @@ function validateBookingPayload(body) {
 
   if (!mitarbeiter_name) errors.push('mitarbeiter_name ist erforderlich');
   if (body.mitarbeiter_email && !mitarbeiter_email) errors.push('mitarbeiter_email ist ungültig');
+  if (!projektnummer) {
+    errors.push('projektnummer ist erforderlich');
+  } else if (!/^T-\d{5}$/i.test(projektnummer)) {
+    errors.push('projektnummer muss dem Format T-12345 entsprechen');
+  }
   if (!datum_von || !datum_bis) errors.push('datum_von und datum_bis müssen gültige Datumswerte sein');
   if (datum_von && datum_bis && datum_von >= datum_bis) errors.push('Das Bis-Datum muss nach dem Von-Datum liegen');
   if (!werkzeuge.length) errors.push('Mindestens ein gültiges Werkzeug ist erforderlich');
@@ -427,6 +433,7 @@ function validateBookingPayload(body) {
       werkzeuge,
       mitarbeiter_name,
       mitarbeiter_email,
+      projektnummer: projektnummer ? projektnummer.toUpperCase() : null,
       datum_von,
       datum_bis
     }
@@ -563,6 +570,10 @@ async function ensureEmailSchema() {
   await pool.query(`
     ALTER TABLE ausleihen
     ADD COLUMN IF NOT EXISTS mitarbeiter_email TEXT
+  `);
+  await pool.query(`
+    ALTER TABLE ausleihen
+    ADD COLUMN IF NOT EXISTS projektnummer TEXT
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS email_notifications_log (
@@ -1840,7 +1851,7 @@ app.post('/api/ausleihen', async (req, res) => {
   try {
     const validation = validateBookingPayload(req.body);
     if (handleValidation(validation, res)) return;
-    const { werkzeuge, mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis } = validation.payload;
+    const { werkzeuge, mitarbeiter_name, mitarbeiter_email, projektnummer, datum_von, datum_bis } = validation.payload;
 
     await client.query('BEGIN');
 
@@ -1882,10 +1893,10 @@ app.post('/api/ausleihen', async (req, res) => {
 
       const contact = buildPersonContact(mitarbeiter_name, mitarbeiter_email);
       const result = await client.query(`
-        INSERT INTO ausleihen (werkzeug_id, mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis, reserviert_am, status)
-        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 'reserviert')
+        INSERT INTO ausleihen (werkzeug_id, mitarbeiter_name, mitarbeiter_email, projektnummer, datum_von, datum_bis, reserviert_am, status)
+        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, 'reserviert')
         RETURNING *
-      `, [werkzeugId, mitarbeiter_name, contact.email, datum_von, datum_bis]);
+      `, [werkzeugId, mitarbeiter_name, contact.email, projektnummer, datum_von, datum_bis]);
 
       await client.query(
         'UPDATE werkzeuge SET status = $1 WHERE id = $2',
