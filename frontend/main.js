@@ -1538,6 +1538,28 @@ async function deleteSchaden(id) {
 
 // ==================== CSV / Excel Import/Export ====================
 
+const IMPORT_HEADERS = [
+    'Werkzeug',
+    'Beschreibung',
+    'Zustand',
+    'Inventarnummer',
+    'Kategorie',
+    'Lagerplatz',
+    'Status',
+    'WartungsintervallTage',
+    'LetzteWartung',
+    'NaechsteWartung',
+    'Wartungsnotiz'
+];
+
+const REQUIRED_IMPORT_HEADERS = [
+    'Werkzeug',
+    'Beschreibung',
+    'Inventarnummer',
+    'Kategorie',
+    'Lagerplatz'
+];
+
 async function exportCSV() {
     try {
         const response = await fetch(buildApiUrl('/export/werkzeuge'));
@@ -1585,6 +1607,53 @@ function parseCsvLine(line) {
     return result;
 }
 
+function normalizeImportCell(value) {
+    return String(value ?? '').trim();
+}
+
+function validateImportHeaders(headerRow) {
+    const normalizedHeaders = IMPORT_HEADERS.map((_, index) => normalizeImportCell(headerRow[index]));
+    const invalidHeaders = [];
+
+    IMPORT_HEADERS.forEach((expectedHeader, index) => {
+        if (normalizedHeaders[index] !== expectedHeader) {
+            invalidHeaders.push(`Spalte ${index + 1}: erwartet „${expectedHeader}“, gefunden „${normalizedHeaders[index] || 'leer'}“`);
+        }
+    });
+
+    return {
+        valid: invalidHeaders.length === 0,
+        errors: invalidHeaders
+    };
+}
+
+function validateImportRow(parts, rowNumber) {
+    const data = rowToWerkzeugPayload(parts);
+    const errors = [];
+
+    if (!data.name) errors.push('Pflichtfeld „Werkzeug“ fehlt');
+    if (!data.beschreibung) errors.push('Pflichtfeld „Beschreibung“ fehlt');
+    if (!data.inventarnummer) errors.push('Pflichtfeld „Inventarnummer“ fehlt');
+    if (!data.kategorie) errors.push('Pflichtfeld „Kategorie“ fehlt');
+    if (!data.lagerplatz) errors.push('Pflichtfeld „Lagerplatz“ fehlt');
+
+    if (data.wartungsintervall_tage && !/^\d+$/.test(data.wartungsintervall_tage)) {
+        errors.push('„WartungsintervallTage“ muss eine ganze Zahl sein');
+    }
+
+    for (const [label, value] of [['LetzteWartung', data.letzte_wartung_am]]) {
+        if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            errors.push(`„${label}“ muss im Format JJJJ-MM-TT sein`);
+        }
+    }
+
+    return {
+        valid: errors.length === 0,
+        data,
+        errors: errors.map(message => `Zeile ${rowNumber}: ${message}`)
+    };
+}
+
 async function readImportRows(file) {
     const fileName = file.name.toLowerCase();
 
@@ -1597,30 +1666,57 @@ async function readImportRows(file) {
         const workbook = XLSX.read(buffer, { type: 'array' });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-        return rows.slice(1).filter(row => row.some(cell => String(cell || '').trim()));
+        return {
+            header: rows[0] || [],
+            rows: rows.slice(1).filter(row => row.some(cell => String(cell || '').trim()))
+        };
+    }
+
+    if (!fileName.endsWith('.csv')) {
+        throw new Error('Ungültiges Dateiformat. Bitte eine CSV- oder Excel-Datei (.xlsx) verwenden.');
     }
 
     const text = await file.text();
-    return text
+    const parsedLines = text
         .split(/\r?\n/)
-        .slice(1)
         .filter(line => line.trim())
         .map(parseCsvLine);
+
+    return {
+        header: parsedLines[0] || [],
+        rows: parsedLines.slice(1)
+    };
 }
 
 function rowToWerkzeugPayload(parts) {
     return {
-        name: String(parts[0] || '').trim(),
-        beschreibung: String(parts[1] || '').trim(),
-        zustand: String(parts[2] || '').trim(),
-        inventarnummer: String(parts[3] || '').trim(),
-        kategorie: String(parts[4] || '').trim(),
-        lagerplatz: String(parts[5] || '').trim(),
-        status: String(parts[6] || '').trim(),
-        wartungsintervall_tage: String(parts[7] || '').trim(),
-        letzte_wartung_am: String(parts[8] || '').trim(),
-        wartung_notiz: String(parts[10] || '').trim()
+        name: normalizeImportCell(parts[0]),
+        beschreibung: normalizeImportCell(parts[1]),
+        zustand: normalizeImportCell(parts[2]),
+        inventarnummer: normalizeImportCell(parts[3]),
+        kategorie: normalizeImportCell(parts[4]),
+        lagerplatz: normalizeImportCell(parts[5]),
+        status: normalizeImportCell(parts[6]),
+        wartungsintervall_tage: normalizeImportCell(parts[7]),
+        letzte_wartung_am: normalizeImportCell(parts[8]),
+        wartung_notiz: normalizeImportCell(parts[10])
     };
+}
+
+function buildImportErrorMessage(fileErrorMessages, rowErrorMessages) {
+    const combined = [...fileErrorMessages, ...rowErrorMessages];
+    if (!combined.length) return 'Der Import ist fehlgeschlagen.';
+
+    const visibleMessages = combined.slice(0, 8);
+    const remaining = combined.length - visibleMessages.length;
+
+    return [
+        'Import fehlgeschlagen:',
+        ...visibleMessages.map(message => `- ${message}`),
+        ...(remaining > 0 ? [`- … und ${remaining} weitere Fehler`] : []),
+        '',
+        'Bitte die Datei anhand der Mustervorlage prüfen und erneut hochladen.'
+    ].join('\n');
 }
 
 async function importCSV(event) {
@@ -1628,15 +1724,37 @@ async function importCSV(event) {
     if (!file) return;
 
     let imported = 0;
-    let errors = 0;
+    const fileErrors = [];
+    const rowErrors = [];
 
     try {
-        const rows = await readImportRows(file);
+        const { header, rows } = await readImportRows(file);
 
-        for (const row of rows) {
-            const data = rowToWerkzeugPayload(row);
-            if (!data.name || !data.inventarnummer) continue;
+        if (!rows.length) {
+            fileErrors.push('Die Datei enthält keine Datenzeilen.');
+        }
 
+        const headerValidation = validateImportHeaders(header);
+        if (!headerValidation.valid) {
+            fileErrors.push('Die Spaltenüberschriften passen nicht zur Mustervorlage.');
+            fileErrors.push(...headerValidation.errors);
+        }
+
+        const validRows = [];
+        rows.forEach((row, index) => {
+            const validation = validateImportRow(row, index + 2);
+            if (validation.valid) {
+                validRows.push(validation.data);
+            } else {
+                rowErrors.push(...validation.errors);
+            }
+        });
+
+        if (fileErrors.length || rowErrors.length) {
+            throw new Error(buildImportErrorMessage(fileErrors, rowErrors));
+        }
+
+        for (const data of validRows) {
             try {
                 await apiCall('/werkzeuge', {
                     method: 'POST',
@@ -1644,18 +1762,21 @@ async function importCSV(event) {
                 });
                 imported++;
             } catch (err) {
-                console.error('Fehler bei:', data.name, err);
-                errors++;
+                rowErrors.push(`Zeile mit Inventarnummer „${data.inventarnummer || 'unbekannt'}": ${err.message}`);
             }
         }
 
-        showToast(`✓ Import abgeschlossen: ${imported} erfolgreich, ${errors} Fehler`);
+        if (rowErrors.length) {
+            throw new Error(buildImportErrorMessage([], rowErrors));
+        }
+
+        showToast(`✓ Import abgeschlossen: ${imported} erfolgreich`);
         closeModal('importModal');
         event.target.value = '';
         loadDashboard();
     } catch (err) {
         event.target.value = '';
-        alert('Fehler beim Import: ' + err.message);
+        alert(err.message || 'Fehler beim Import');
     }
 }
 
