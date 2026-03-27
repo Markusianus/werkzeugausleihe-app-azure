@@ -327,31 +327,31 @@
         .werkzeug-list {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 8px;
         }
 
         .werkzeug-card {
             border: 1px solid #e5e7eb;
-            border-radius: 14px;
-            padding: 18px;
+            border-radius: 12px;
+            padding: 12px 14px;
             background: white;
-            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
             display: grid;
-            grid-template-columns: auto minmax(0, 1fr) auto;
-            gap: 16px;
+            grid-template-columns: auto minmax(0, 1.35fr) minmax(150px, 0.95fr) auto;
+            gap: 12px;
             align-items: center;
         }
 
         .werkzeug-card-visual {
-            width: 52px;
-            height: 52px;
-            border-radius: 12px;
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
             background: #f5f3ff;
             color: #6d28d9;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.6rem;
+            font-size: 1.25rem;
             flex-shrink: 0;
             overflow: hidden;
         }
@@ -362,41 +362,73 @@
             object-fit: cover;
         }
 
-        .werkzeug-card-main {
+        .werkzeug-card-main,
+        .werkzeug-card-side {
             min-width: 0;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 4px;
         }
 
         .werkzeug-card-header {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            flex-wrap: wrap;
+            gap: 8px;
         }
 
         .werkzeug-card-title h3 {
-            margin-bottom: 4px;
+            margin: 0;
+            font-size: 1rem;
+            line-height: 1.2;
         }
 
         .werkzeug-card-subline {
             color: #6b7280;
-            font-size: 0.92em;
+            font-size: 0.82em;
         }
 
         .werkzeug-card-description {
             color: #4b5563;
-            line-height: 1.45;
+            line-height: 1.35;
+            font-size: 0.88em;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
 
         .werkzeug-card-actions {
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
             align-items: stretch;
-            min-width: 150px;
+            min-width: 132px;
+        }
+
+        .werkzeug-card-actions button {
+            padding: 7px 10px;
+            font-size: 0.82em;
+        }
+
+        .werkzeug-card-side .status-badge,
+        .werkzeug-card-main .status-badge {
+            width: fit-content;
+            max-width: 100%;
+        }
+
+        .werkzeug-inline-meta,
+        .werkzeug-inline-stock,
+        .werkzeug-inline-maintenance {
+            color: #6b7280;
+            font-size: 0.82em;
+            line-height: 1.3;
+        }
+
+        .werkzeug-inline-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 10px;
         }
 
         .selection-toolbar {
@@ -611,6 +643,16 @@
         .kalender-cell.booking-start { border-left: 3px solid #6b21a8; }
         .kalender-cell.booking-end { border-right: 3px solid #6b21a8; }
 
+        @media (max-width: 1100px) {
+            .werkzeug-card {
+                grid-template-columns: auto minmax(0, 1fr) auto;
+            }
+
+            .werkzeug-card-side {
+                grid-column: 2 / 3;
+            }
+        }
+
         @media (max-width: 900px) {
             body { padding: 10px; }
             .content { padding: 18px; }
@@ -623,6 +665,11 @@
             }
             .werkzeug-card-actions {
                 min-width: 0;
+                flex-direction: row;
+                flex-wrap: wrap;
+            }
+            .werkzeug-card-actions button {
+                flex: 1 1 140px;
             }
         }
     </style>

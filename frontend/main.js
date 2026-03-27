@@ -202,7 +202,7 @@ function getInventorySummaryHtml(w, { compact = false } = {}) {
     if (inWartung) parts.push(`${inWartung} in Wartung`);
 
     return compact
-        ? `<div style="font-size:0.85em;color:#6b7280;">📦 ${parts.join(' · ')}</div>`
+        ? `<span>📦 ${escapeHtml(parts.join(' · '))}</span>`
         : `<div class="info" style="margin-bottom:16px;text-align:left;"><strong>Bestand:</strong> ${escapeHtml(parts.join(' · '))}</div>`;
 }
 
@@ -278,13 +278,19 @@ async function loadWerkzeuge(filter = {}) {
 
             const isVerfuegbar = Number(w.verfuegbare_einheiten ?? 0) > 0;
             const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
+            const maintenanceBadge = getWartungsStatusBadge(w);
             const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
             const verfuegbarkeitsBadge = isZeitraumGefiltert
-                ? '<span class="status-badge status-verfuegbar">🗓️ Im Zeitraum verfügbar</span>'
+                ? '<span class="status-badge status-verfuegbar">🗓️ Zeitraum passt</span>'
                 : '';
             const visual = w.foto
                 ? `<div class="werkzeug-card-visual"><img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}"></div>`
                 : `<div class="werkzeug-card-visual">${escapeHtml(w.icon || '🔧')}</div>`;
+            const metaLine = [
+                w.inventarnummer ? `📦 ${escapeHtml(w.inventarnummer)}` : null,
+                w.kategorie ? `🏷️ ${escapeHtml(w.kategorie)}` : null,
+                w.lagerplatz ? `📍 ${escapeHtml(w.lagerplatz)}` : null
+            ].filter(Boolean).join('<span>·</span>');
 
             card.innerHTML = `
                 ${visual}
@@ -292,25 +298,23 @@ async function loadWerkzeuge(filter = {}) {
                     <div class="werkzeug-card-header">
                         <div class="werkzeug-card-title">
                             <h3>${escapeHtml(w.name)}</h3>
-                            <div class="werkzeug-card-subline">${escapeHtml(w.inventarnummer || '-')}</div>
+                            <div class="werkzeug-card-subline">${metaLine || '-'}</div>
                         </div>
-                        <div>${statusBadge}</div>
                     </div>
                     ${w.beschreibung ? `<div class="werkzeug-card-description">${escapeHtml(w.beschreibung)}</div>` : ''}
-                    <div class="werkzeug-meta">
-                        ${w.kategorie ? `<span>🏷️ ${escapeHtml(w.kategorie)}</span>` : ''}
-                        ${w.lagerplatz ? `<span>📍 ${escapeHtml(w.lagerplatz)}</span>` : ''}
-                        ${verfuegbarkeitsBadge}
-                    </div>
-                    <div>${getInventorySummaryHtml(w, { compact: true })}</div>
-                    <div>${getWartungsStatusBadge(w)}</div>
+                    <div class="werkzeug-inline-stock">${getInventorySummaryHtml(w, { compact: true })}</div>
+                </div>
+                <div class="werkzeug-card-side">
+                    <div>${statusBadge}</div>
+                    ${verfuegbarkeitsBadge ? `<div>${verfuegbarkeitsBadge}</div>` : ''}
+                    <div class="werkzeug-inline-maintenance">${maintenanceBadge}</div>
                 </div>
                 <div class="werkzeug-card-actions">
                     <button class="btn-primary" onclick="addToWarenkorb(${w.id})" ${!isVerfuegbar ? 'disabled' : ''}>
-                        ${isVerfuegbar ? '➕ In den Warenkorb' : 'Nicht verfügbar'}
+                        ${isVerfuegbar ? '＋ Warenkorb' : 'Nicht verfügbar'}
                     </button>
-                    <button class="btn-secondary" onclick="showWerkzeugDetail(${w.id})">ℹ️ Details</button>
-                    <button class="btn-warning btn-small" onclick="showSchadenMelden(${w.id})">🔧 Schaden melden</button>
+                    <button class="btn-secondary btn-small" onclick="showWerkzeugDetail(${w.id})">Details</button>
+                    <button class="btn-warning btn-small" onclick="showSchadenMelden(${w.id})">Schaden</button>
                 </div>
             `;
 
