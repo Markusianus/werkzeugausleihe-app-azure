@@ -83,13 +83,6 @@
             gap: 2px;
         }
 
-        .brand-overline {
-            font-size: 0.72rem;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            color: rgba(233, 213, 255, 0.9);
-        }
-
         .header h1 { font-size: 1.8em; }
         .mode-toggle { display: flex; gap: 10px; }
 
@@ -276,22 +269,7 @@
             color: #7c3aed;
         }
 
-        .section {
-            margin-top: 30px;
-            position: relative;
-        }
-
-        .section::before {
-            content: '';
-            position: absolute;
-            top: -8px;
-            left: -6px;
-            width: 14px;
-            height: 14px;
-            background: linear-gradient(180deg, rgba(192, 132, 252, 0.9), rgba(124, 58, 237, 0.8));
-            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-            opacity: 0.85;
-        }
+        .section { margin-top: 30px; }
 
         .hidden { display: none; }
         .loading { text-align: center; padding: 40px; font-size: 1.1em; color: #9333ea; }
@@ -514,20 +492,6 @@
             border: 1px solid #e9d5ff;
             border-radius: 12px;
             background: linear-gradient(135deg, #faf5ff 0%, #ffffff 100%);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .selection-toolbar::after {
-            content: '';
-            position: absolute;
-            right: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 22px;
-            height: 22px;
-            background: rgba(147, 51, 234, 0.14);
-            clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
         }
 
         .selection-summary {
@@ -745,7 +709,6 @@
             .date-inputs, .form-row { grid-template-columns: 1fr; }
             .header { padding: 18px; }
             .header::after { width: 96px; height: 96px; top: -22px; right: 10px; }
-            .brand-overline { font-size: 0.64rem; }
             .kalender-header { padding: 16px; }
             .werkzeug-card {
                 grid-template-columns: 1fr;
@@ -768,7 +731,6 @@
             <div class="brand-mark">
                 <span class="brand-mark-icon" aria-hidden="true"></span>
                 <div class="brand-mark-text">
-                    <span class="brand-overline">Triangle Systems</span>
                     <h1>ToolHub</h1>
                 </div>
             </div>
