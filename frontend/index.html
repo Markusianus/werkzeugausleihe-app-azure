@@ -544,6 +544,57 @@
             transform: translateY(0);
         }
 
+        .import-feedback {
+            margin-top: 16px;
+            border: 1px solid #e9d5ff;
+            border-left: 4px solid #a855f7;
+            border-radius: 12px;
+            background: #faf5ff;
+            padding: 14px 16px;
+            display: none;
+        }
+
+        .import-feedback.active {
+            display: block;
+        }
+
+        .import-feedback.error {
+            border-color: #fecaca;
+            border-left-color: #dc2626;
+            background: #fef2f2;
+        }
+
+        .import-feedback.success {
+            border-color: #bbf7d0;
+            border-left-color: #16a34a;
+            background: #f0fdf4;
+        }
+
+        .import-feedback h3 {
+            margin: 0 0 8px 0;
+            font-size: 1rem;
+        }
+
+        .import-feedback p {
+            margin: 0 0 10px 0;
+            color: #4b5563;
+            line-height: 1.45;
+        }
+
+        .import-feedback textarea {
+            width: 100%;
+            min-height: 220px;
+            resize: vertical;
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            background: #fff;
+            color: #111827;
+        }
+
         /* Buchungskalender */
         .kalender-card {
             border: 1px solid #e5e7eb;
@@ -1039,6 +1090,11 @@
                     <button class="btn-primary" onclick="exportCSV()">CSV exportieren</button>
                     <a class="btn-secondary" href="werkzeuge-import-muster.xlsx" download="werkzeuge-import-muster.xlsx" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">Excel-Mustertabelle herunterladen</a>
                     <button class="btn-secondary" onclick="closeModal('importModal')">Schließen</button>
+                </div>
+                <div id="importFeedback" class="import-feedback" aria-live="polite">
+                    <h3 id="importFeedbackTitle">Import-Hinweis</h3>
+                    <p id="importFeedbackSummary"></p>
+                    <textarea id="importFeedbackDetails" readonly spellcheck="false"></textarea>
                 </div>
             </div>
         </div>

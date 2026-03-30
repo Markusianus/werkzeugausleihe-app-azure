@@ -80,7 +80,10 @@ async function apiCall(endpoint, options = {}) {
                 throw new Error(`Tool-Admin-Anmeldung erforderlich.${detail}`.trim());
             }
 
-            const errorMessage = [error.error, error.detail].filter(Boolean).join(' – ');
+            let errorMessage = [error.error, error.detail].filter(Boolean).join(' – ');
+            if (response.status === 400 && Array.isArray(error.details) && error.details.length) {
+                errorMessage = `${errorMessage || 'Validierung fehlgeschlagen'} – ${error.details.join('; ')}`;
+            }
             throw new Error(errorMessage || `HTTP ${response.status}`);
         }
 
@@ -1631,12 +1634,20 @@ async function exportCSV() {
 }
 
 async function showImportCSV() {
+    clearImportFeedback();
+
     const hasAccess = await ensureToolAdminAccess({
         reason: 'Der Dateiimport ist nur im angemeldeten Tool-Admin-Bereich verfügbar.'
     });
 
     if (!hasAccess) {
-        alert('Der Import wurde nicht geöffnet, weil keine gültige Tool-Admin-Anmeldung vorliegt. Bitte als Tool-Admin anmelden und dann den Import erneut starten.');
+        showImportFeedback({
+            type: 'error',
+            title: 'Tool-Admin-Anmeldung fehlt',
+            summary: 'Der Importbereich wurde nicht geöffnet, weil keine gültige Tool-Admin-Anmeldung vorliegt.',
+            details: 'Bitte zuerst als Tool-Admin anmelden und danach den Import erneut öffnen.'
+        });
+        document.getElementById('importModal').classList.add('active');
         return;
     }
 
@@ -1694,24 +1705,33 @@ function validateImportHeaders(headerRow) {
 function validateImportRow(data, rowNumber) {
     const errors = [];
 
-    if (!data.name) errors.push('Pflichtfeld „Werkzeug“ fehlt');
-    if (!data.inventarnummer) errors.push('Pflichtfeld „Inventarnummer“ fehlt');
-    if (!data.lagerplatz) errors.push('Pflichtfeld „Lagerplatz“ fehlt');
+    const addFieldError = (fieldLabel, value, problem, expected) => {
+        const shownValue = String(value ?? '').trim() || 'leer';
+        errors.push(`Zeile ${rowNumber} | ${fieldLabel}: gefunden „${shownValue}" → ${problem}. Erwartet: ${expected}`);
+    };
+
+    if (!data.name) addFieldError('Werkzeug', data.name, 'Pflichtfeld fehlt', 'einen Namen, z. B. „Akkuschrauber“');
+    if (!data.inventarnummer) addFieldError('Inventarnummer', data.inventarnummer, 'Pflichtfeld fehlt', 'eine eindeutige Inventarnummer, z. B. „INV-1001“');
+    if (!data.lagerplatz) addFieldError('Lagerplatz', data.lagerplatz, 'Pflichtfeld fehlt', 'einen Lagerplatz, z. B. „Regal A3“');
+
+    if (data.status && !['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur'].includes(data.status.toLowerCase())) {
+        addFieldError('Status', data.status, 'ungültiger Statuswert', 'einen dieser Werte: verfuegbar, reserviert, ausgeliehen, defekt, reinigung, reparatur');
+    }
 
     if (data.wartungsintervall_tage && !/^\d+$/.test(data.wartungsintervall_tage)) {
-        errors.push('„WartungsintervallTage“ muss eine ganze Zahl sein');
+        addFieldError('WartungsintervallTage', data.wartungsintervall_tage, 'keine ganze positive Zahl', 'eine ganze Zahl wie 30 oder 180');
     }
 
     for (const [label, value] of [['LetzteWartung', data.letzte_wartung_am]]) {
         if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-            errors.push(`„${label}“ muss im Format JJJJ-MM-TT sein`);
+            addFieldError(label, value, 'ungültiges Datumsformat', 'JJJJ-MM-TT, z. B. 2026-03-30');
         }
     }
 
     return {
         valid: errors.length === 0,
         data,
-        errors: errors.map(message => `Zeile ${rowNumber}: ${message}`)
+        errors
     };
 }
 
@@ -1770,25 +1790,64 @@ function rowToWerkzeugPayload(parts, headerMap = null) {
     };
 }
 
+function showImportFeedback({ type = 'error', title, summary, details }) {
+    const box = document.getElementById('importFeedback');
+    const titleEl = document.getElementById('importFeedbackTitle');
+    const summaryEl = document.getElementById('importFeedbackSummary');
+    const detailsEl = document.getElementById('importFeedbackDetails');
+
+    if (!box || !titleEl || !summaryEl || !detailsEl) return;
+
+    box.classList.add('active');
+    box.classList.remove('error', 'success');
+    box.classList.add(type);
+    titleEl.textContent = title || (type === 'success' ? 'Import erfolgreich' : 'Import fehlgeschlagen');
+    summaryEl.textContent = summary || '';
+    detailsEl.value = details || '';
+}
+
+function clearImportFeedback() {
+    const box = document.getElementById('importFeedback');
+    const titleEl = document.getElementById('importFeedbackTitle');
+    const summaryEl = document.getElementById('importFeedbackSummary');
+    const detailsEl = document.getElementById('importFeedbackDetails');
+
+    if (!box || !titleEl || !summaryEl || !detailsEl) return;
+
+    box.classList.remove('active', 'error', 'success');
+    titleEl.textContent = 'Import-Hinweis';
+    summaryEl.textContent = '';
+    detailsEl.value = '';
+}
+
 function buildImportErrorMessage(fileErrorMessages, rowErrorMessages) {
     const combined = [...fileErrorMessages, ...rowErrorMessages];
-    if (!combined.length) return 'Der Import ist fehlgeschlagen.';
+    if (!combined.length) {
+        return {
+            title: 'Import fehlgeschlagen',
+            summary: 'Der Import konnte nicht ausgeführt werden.',
+            details: 'Es wurde kein konkreter Fehlertext geliefert.'
+        };
+    }
 
-    const visibleMessages = combined.slice(0, 8);
-    const remaining = combined.length - visibleMessages.length;
-
-    return [
-        'Import fehlgeschlagen:',
-        ...visibleMessages.map(message => `- ${message}`),
-        ...(remaining > 0 ? [`- … und ${remaining} weitere Fehler`] : []),
+    const details = [
+        'Bitte Dateiinhalt prüfen und danach erneut importieren.',
         '',
-        'Bitte die Datei anhand der Mustervorlage prüfen und erneut hochladen.'
+        ...combined.map(message => `- ${message}`)
     ].join('\n');
+
+    return {
+        title: 'Import fehlgeschlagen',
+        summary: `${combined.length} Problem${combined.length === 1 ? '' : 'e'} gefunden. Die Details unten können direkt markiert und kopiert werden.`,
+        details
+    };
 }
 
 async function importCSV(event) {
     const file = event.target.files[0];
     if (!file) return;
+
+    clearImportFeedback();
 
     let imported = 0;
     const fileErrors = [];
@@ -1800,19 +1859,24 @@ async function importCSV(event) {
         });
 
         if (!hasAccess) {
-            throw new Error('Der Import wurde abgebrochen, weil keine gültige Tool-Admin-Anmeldung vorlag. Bitte im Tool-Admin-Bereich erneut anmelden und die Datei danach noch einmal importieren.');
+            const feedback = buildImportErrorMessage([], [
+                'Keine gültige Tool-Admin-Anmeldung vorhanden. Bitte erneut als Tool-Admin anmelden und den Import danach noch einmal starten.'
+            ]);
+            showImportFeedback({ type: 'error', ...feedback });
+            event.target.value = '';
+            return;
         }
 
         const { header, rows } = await readImportRows(file);
 
         if (!rows.length) {
-            fileErrors.push('Die Datei enthält keine Datenzeilen.');
+            fileErrors.push('Die Datei enthält keine Datenzeilen. Erwartet werden eine Kopfzeile plus mindestens eine Werkzeug-Zeile.');
         }
 
         const headerValidation = validateImportHeaders(header);
         if (!headerValidation.valid) {
-            fileErrors.push('Die Spaltenüberschriften passen nicht zur Mustervorlage.');
-            fileErrors.push(...headerValidation.errors);
+            fileErrors.push('Die Spaltenüberschriften passen nicht zur Mustervorlage. Bitte Reihenfolge und Schreibweise unverändert aus der Mustervorlage übernehmen.');
+            fileErrors.push(...headerValidation.errors.map(error => `${error}. So muss es aussehen: ${IMPORT_HEADERS.join(', ')}`));
         }
 
         const normalizedHeader = IMPORT_HEADERS.map((_, index) => normalizeImportCell(header[index]));
@@ -1830,7 +1894,10 @@ async function importCSV(event) {
         });
 
         if (fileErrors.length || rowErrors.length) {
-            throw new Error(buildImportErrorMessage(fileErrors, rowErrors));
+            const feedback = buildImportErrorMessage(fileErrors, rowErrors);
+            showImportFeedback({ type: 'error', ...feedback });
+            event.target.value = '';
+            return;
         }
 
         for (const data of validRows) {
@@ -1841,25 +1908,35 @@ async function importCSV(event) {
                 });
                 imported++;
             } catch (err) {
-                const isToolAdminIssue = /Tool-Admin|Admin-Berechtigung erforderlich|401/i.test(err.message || '');
-                const detail = isToolAdminIssue
-                    ? 'Es lag keine gültige Tool-Admin-Anmeldung mehr vor. Bitte erneut als Tool-Admin anmelden und den Import noch einmal starten.'
-                    : (err.message || 'Unbekannter Fehler');
+                const detail = err.message || 'Unbekannter Fehler';
                 rowErrors.push(`Zeile mit Inventarnummer „${data.inventarnummer || 'unbekannt'}": ${detail}`);
             }
         }
 
         if (rowErrors.length) {
-            throw new Error(buildImportErrorMessage([], rowErrors));
+            const feedback = buildImportErrorMessage([], rowErrors);
+            showImportFeedback({ type: 'error', ...feedback });
+            event.target.value = '';
+            return;
         }
 
+        showImportFeedback({
+            type: 'success',
+            title: 'Import erfolgreich',
+            summary: `${imported} Werkzeug${imported === 1 ? '' : 'e'} wurden erfolgreich importiert.`,
+            details: `${file.name}\n\nErfolgreich importiert: ${imported}`
+        });
         showToast(`✓ Import abgeschlossen: ${imported} erfolgreich`);
-        closeModal('importModal');
         event.target.value = '';
         loadDashboard();
     } catch (err) {
         event.target.value = '';
-        alert(err.message || 'Fehler beim Import. Bitte Datei und Tool-Admin-Anmeldung prüfen.');
+        showImportFeedback({
+            type: 'error',
+            title: 'Import fehlgeschlagen',
+            summary: 'Der Import konnte nicht verarbeitet werden.',
+            details: err.message || 'Fehler beim Import. Bitte Datei und Tool-Admin-Anmeldung prüfen.'
+        });
     }
 }
 
