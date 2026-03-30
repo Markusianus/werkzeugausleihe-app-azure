@@ -68,8 +68,20 @@ async function apiCall(endpoint, options = {}) {
         const response = await fetch(buildApiUrl(endpoint), defaultOptions);
 
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || `HTTP ${response.status}`);
+            const contentType = response.headers.get('content-type') || '';
+            const error = contentType.includes('application/json')
+                ? await response.json()
+                : { error: await response.text() };
+
+            if (response.status === 401 && (error.code === 'TOOL_ADMIN_AUTH_REQUIRED' || /Tool-Admin-Anmeldung erforderlich/i.test(error.error || ''))) {
+                isAdmin = false;
+                localStorage.removeItem('adminToken');
+                const detail = error.detail ? ` ${error.detail}` : '';
+                throw new Error(`Tool-Admin-Anmeldung erforderlich.${detail}`.trim());
+            }
+
+            const errorMessage = [error.error, error.detail].filter(Boolean).join(' – ');
+            throw new Error(errorMessage || `HTTP ${response.status}`);
         }
 
         if (response.status === 204) {
@@ -117,11 +129,18 @@ function switchMode(mode) {
     }
 }
 
-async function showAdminLogin() {
-    const password = prompt('Admin-Passwort eingeben:');
+async function showAdminLogin(options = {}) {
+    const {
+        stayInCurrentMode = false,
+        reason = 'Für diesen Bereich ist eine Anmeldung als Tool-Admin erforderlich.'
+    } = options;
+
+    const password = prompt(`${reason}\n\nBitte Tool-Admin-Passwort eingeben:`);
     if (!password) {
-        switchMode('mitarbeiter');
-        return;
+        if (!stayInCurrentMode) {
+            switchMode('mitarbeiter');
+        }
+        return false;
     }
 
     try {
@@ -133,15 +152,53 @@ async function showAdminLogin() {
         if (response.success) {
             isAdmin = true;
             localStorage.setItem('adminToken', response.token);
-            switchMode('admin');
-        } else {
-            alert('Falsches Passwort!');
+            if (!stayInCurrentMode) {
+                switchMode('admin');
+            }
+            return true;
+        }
+
+        alert('Die Tool-Admin-Anmeldung ist fehlgeschlagen. Bitte Passwort prüfen und erneut versuchen.');
+        if (!stayInCurrentMode) {
             switchMode('mitarbeiter');
         }
+        return false;
     } catch (err) {
-        alert('Authentifizierungsfehler: ' + err.message);
-        switchMode('mitarbeiter');
+        alert('Tool-Admin-Anmeldung fehlgeschlagen: ' + (err.message || 'Unbekannter Fehler'));
+        if (!stayInCurrentMode) {
+            switchMode('mitarbeiter');
+        }
+        return false;
     }
+}
+
+async function ensureToolAdminAccess(options = {}) {
+    const {
+        interactive = true,
+        reason = 'Für diese Aktion ist eine Anmeldung als Tool-Admin erforderlich.'
+    } = options;
+
+    const adminToken = localStorage.getItem('adminToken');
+    if (adminToken) {
+        try {
+            const response = await apiCall('/admin/verify');
+            if (response.valid) {
+                isAdmin = true;
+                return true;
+            }
+        } catch (err) {
+            console.warn('Tool-Admin-Token konnte nicht verifiziert werden:', err);
+        }
+    }
+
+    isAdmin = false;
+    localStorage.removeItem('adminToken');
+
+    if (!interactive) {
+        return false;
+    }
+
+    return showAdminLogin({ stayInCurrentMode: true, reason });
 }
 
 function logout() {
@@ -1573,7 +1630,16 @@ async function exportCSV() {
     }
 }
 
-function showImportCSV() {
+async function showImportCSV() {
+    const hasAccess = await ensureToolAdminAccess({
+        reason: 'Der Dateiimport ist nur im angemeldeten Tool-Admin-Bereich verfügbar.'
+    });
+
+    if (!hasAccess) {
+        alert('Der Import wurde nicht geöffnet, weil keine gültige Tool-Admin-Anmeldung vorliegt. Bitte als Tool-Admin anmelden und dann den Import erneut starten.');
+        return;
+    }
+
     document.getElementById('importModal').classList.add('active');
 }
 
@@ -1729,6 +1795,14 @@ async function importCSV(event) {
     const rowErrors = [];
 
     try {
+        const hasAccess = await ensureToolAdminAccess({
+            reason: 'Für den Import neuer Werkzeuge muss eine gültige Tool-Admin-Anmeldung vorliegen. Ihre vorherige Anmeldung ist möglicherweise abgelaufen.'
+        });
+
+        if (!hasAccess) {
+            throw new Error('Der Import wurde abgebrochen, weil keine gültige Tool-Admin-Anmeldung vorlag. Bitte im Tool-Admin-Bereich erneut anmelden und die Datei danach noch einmal importieren.');
+        }
+
         const { header, rows } = await readImportRows(file);
 
         if (!rows.length) {
@@ -1767,7 +1841,11 @@ async function importCSV(event) {
                 });
                 imported++;
             } catch (err) {
-                rowErrors.push(`Zeile mit Inventarnummer „${data.inventarnummer || 'unbekannt'}": ${err.message}`);
+                const isToolAdminIssue = /Tool-Admin|Admin-Berechtigung erforderlich|401/i.test(err.message || '');
+                const detail = isToolAdminIssue
+                    ? 'Es lag keine gültige Tool-Admin-Anmeldung mehr vor. Bitte erneut als Tool-Admin anmelden und den Import noch einmal starten.'
+                    : (err.message || 'Unbekannter Fehler');
+                rowErrors.push(`Zeile mit Inventarnummer „${data.inventarnummer || 'unbekannt'}": ${detail}`);
             }
         }
 
@@ -1781,7 +1859,7 @@ async function importCSV(event) {
         loadDashboard();
     } catch (err) {
         event.target.value = '';
-        alert(err.message || 'Fehler beim Import');
+        alert(err.message || 'Fehler beim Import. Bitte Datei und Tool-Admin-Anmeldung prüfen.');
     }
 }
 

@@ -1235,7 +1235,11 @@ async function refreshToolStatus(client, werkzeugId) {
 function requireAdmin(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '').trim();
   if (!token || !verifyAdminToken(token)) {
-    return res.status(401).json({ error: 'Admin-Berechtigung erforderlich' });
+    return res.status(401).json({
+      error: 'Tool-Admin-Anmeldung erforderlich',
+      code: 'TOOL_ADMIN_AUTH_REQUIRED',
+      detail: 'Für diese Aktion wird eine gültige Anmeldung im Tool-Admin-Bereich benötigt. Die Anmeldung fehlt oder ist abgelaufen.'
+    });
   }
   next();
 }
@@ -1290,7 +1294,7 @@ app.post('/api/admin/auth', authLimiter, async (req, res) => {
     res.json({
       success: true,
       token,
-      message: 'Admin-Modus aktiviert',
+      message: 'Tool-Admin-Modus aktiviert',
       expires_in_hours: ADMIN_TOKEN_TTL_HOURS
     });
   } else {
