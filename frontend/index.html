@@ -595,6 +595,52 @@
             color: #111827;
         }
 
+        .import-guidance {
+            margin-top: 10px;
+            border: 1px solid #e9d5ff;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #faf5ff 0%, #ffffff 100%);
+            padding: 14px 16px;
+            color: #374151;
+        }
+
+        .import-guidance h3 {
+            margin: 0 0 10px 0;
+            font-size: 1rem;
+            color: #4c1d95;
+        }
+
+        .import-guidance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px 18px;
+        }
+
+        .import-guidance-section strong {
+            display: block;
+            margin-bottom: 6px;
+            color: #111827;
+        }
+
+        .import-guidance-section ul,
+        .import-guidance-section ol {
+            margin: 0;
+            padding-left: 18px;
+            line-height: 1.5;
+        }
+
+        .import-guidance-section li {
+            margin-bottom: 4px;
+        }
+
+        .import-guidance code {
+            background: #f3e8ff;
+            color: #6b21a8;
+            padding: 1px 6px;
+            border-radius: 6px;
+            font-size: 0.9em;
+        }
+
         /* Buchungskalender */
         .kalender-card {
             border: 1px solid #e5e7eb;
@@ -1080,11 +1126,51 @@
                 <div class="form-group">
                     <label for="importFile" class="file-input-label">CSV oder Excel importieren</label>
                     <input type="file" id="importFile" accept=".csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onchange="importCSV(event)">
-                    <p style="margin-top:8px;color:#6b7280;font-size:0.9em;line-height:1.45;">
-                        Unterstützte Formate: <strong>CSV</strong> und <strong>Excel (.xlsx)</strong>.<br>
-                        Erwartete Spaltenreihenfolge: Werkzeug, Beschreibung, Zustand, Inventarnummer, Kategorie, Lagerplatz, Status, WartungsintervallTage, LetzteWartung, NaechsteWartung, Wartungsnotiz.<br>
-                        Pflichtfelder im Import: <strong>Werkzeug</strong>, <strong>Inventarnummer</strong> und <strong>Lagerplatz</strong>.
-                    </p>
+                    <div class="import-guidance">
+                        <h3>Import-Hinweise</h3>
+                        <div class="import-guidance-grid">
+                            <div class="import-guidance-section">
+                                <strong>Pflichtfelder</strong>
+                                <ul>
+                                    <li><code>Werkzeug</code> – z. B. Akkuschrauber</li>
+                                    <li><code>Inventarnummer</code> – eindeutiger Wert, z. B. INV-1001</li>
+                                </ul>
+                            </div>
+                            <div class="import-guidance-section">
+                                <strong>Optionale Felder</strong>
+                                <ul>
+                                    <li><code>Beschreibung</code>, <code>Zustand</code>, <code>Kategorie</code>, <code>Lagerplatz</code></li>
+                                    <li><code>Status</code> nur mit: <code>verfuegbar</code>, <code>reserviert</code>, <code>ausgeliehen</code>, <code>defekt</code>, <code>reinigung</code>, <code>reparatur</code></li>
+                                    <li><code>WartungsintervallTage</code> nur als ganze Zahl, z. B. <code>30</code></li>
+                                    <li><code>LetzteWartung</code> nur im Format <code>JJJJ-MM-TT</code>, z. B. <code>2026-03-30</code></li>
+                                </ul>
+                            </div>
+                            <div class="import-guidance-section">
+                                <strong>Spaltenreihenfolge</strong>
+                                <ol>
+                                    <li>Werkzeug</li>
+                                    <li>Beschreibung</li>
+                                    <li>Zustand</li>
+                                    <li>Inventarnummer</li>
+                                    <li>Kategorie</li>
+                                    <li>Lagerplatz</li>
+                                    <li>Status</li>
+                                    <li>WartungsintervallTage</li>
+                                    <li>LetzteWartung</li>
+                                    <li>NaechsteWartung</li>
+                                    <li>Wartungsnotiz</li>
+                                </ol>
+                            </div>
+                            <div class="import-guidance-section">
+                                <strong>Wichtig</strong>
+                                <ul>
+                                    <li>Am sichersten ist die bereitgestellte Excel-Mustertabelle.</li>
+                                    <li>Leer lassen ist erlaubt, wenn ein Feld optional ist.</li>
+                                    <li>Wenn Fehler auftreten, stehen sie unten im Dialog kopierbar bereit.</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-group" style="display:flex;gap:10px;flex-wrap:wrap;">
                     <button class="btn-primary" onclick="exportCSV()">CSV exportieren</button>

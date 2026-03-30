@@ -1702,6 +1702,8 @@ function validateImportHeaders(headerRow) {
     };
 }
 
+const IMPORT_ALLOWED_STATUSES = ['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur'];
+
 function validateImportRow(data, rowNumber) {
     const errors = [];
 
@@ -1712,10 +1714,9 @@ function validateImportRow(data, rowNumber) {
 
     if (!data.name) addFieldError('Werkzeug', data.name, 'Pflichtfeld fehlt', 'einen Namen, z. B. „Akkuschrauber“');
     if (!data.inventarnummer) addFieldError('Inventarnummer', data.inventarnummer, 'Pflichtfeld fehlt', 'eine eindeutige Inventarnummer, z. B. „INV-1001“');
-    if (!data.lagerplatz) addFieldError('Lagerplatz', data.lagerplatz, 'Pflichtfeld fehlt', 'einen Lagerplatz, z. B. „Regal A3“');
 
-    if (data.status && !['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur'].includes(data.status.toLowerCase())) {
-        addFieldError('Status', data.status, 'ungültiger Statuswert', 'einen dieser Werte: verfuegbar, reserviert, ausgeliehen, defekt, reinigung, reparatur');
+    if (data.status && !IMPORT_ALLOWED_STATUSES.includes(data.status.toLowerCase())) {
+        addFieldError('Status', data.status, 'ungültiger Statuswert', `einen dieser Werte: ${IMPORT_ALLOWED_STATUSES.join(', ')}`);
     }
 
     if (data.wartungsintervall_tage && !/^\d+$/.test(data.wartungsintervall_tage)) {
@@ -1873,10 +1874,24 @@ async function importCSV(event) {
             fileErrors.push('Die Datei enthält keine Datenzeilen. Erwartet werden eine Kopfzeile plus mindestens eine Werkzeug-Zeile.');
         }
 
+        const lagerplatzHeaderIndex = IMPORT_HEADERS.indexOf('Lagerplatz');
+        const hasAnyLagerplatzValue = rows.some(row => normalizeImportCell(row[lagerplatzHeaderIndex]));
+
         const headerValidation = validateImportHeaders(header);
         if (!headerValidation.valid) {
             fileErrors.push('Die Spaltenüberschriften passen nicht zur Mustervorlage. Bitte Reihenfolge und Schreibweise unverändert aus der Mustervorlage übernehmen.');
             fileErrors.push(...headerValidation.errors.map(error => `${error}. So muss es aussehen: ${IMPORT_HEADERS.join(', ')}`));
+        }
+
+        const unknownStatusRows = [];
+        rows.forEach((row, index) => {
+            const rawStatus = normalizeImportCell(row[IMPORT_HEADERS.indexOf('Status')]);
+            if (rawStatus && !IMPORT_ALLOWED_STATUSES.includes(rawStatus.toLowerCase())) {
+                unknownStatusRows.push(`Zeile ${index + 2} | Status: gefunden „${rawStatus}" → ungültiger Statuswert. Erwartet: ${IMPORT_ALLOWED_STATUSES.join(', ')}`);
+            }
+        });
+        if (unknownStatusRows.length) {
+            rowErrors.push(...unknownStatusRows);
         }
 
         const normalizedHeader = IMPORT_HEADERS.map((_, index) => normalizeImportCell(header[index]));
@@ -1885,6 +1900,9 @@ async function importCSV(event) {
         const validRows = [];
         rows.forEach((row, index) => {
             const data = rowToWerkzeugPayload(row, headerMap);
+            if (!hasAnyLagerplatzValue && !data.lagerplatz) {
+                data.lagerplatz = 'Nicht angegeben';
+            }
             const validation = validateImportRow(data, index + 2);
             if (validation.valid) {
                 validRows.push(validation.data);
