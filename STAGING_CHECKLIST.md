@@ -23,3 +23,7 @@
 - [ ] Bearbeiten-Flow speichert erwartete Felder
 - [ ] QR-/Detailansicht funktioniert
 - [ ] neue Statusoptionen korrekt sichtbar / speicherbar
+- [ ] Tool-Admin-Begriffe in UI/Fehlertexten fachlich konsistent
+- [ ] Dateiimport verlangt bei fehlender/abgelaufener Anmeldung verständlich eine Tool-Admin-Anmeldung
+- [ ] Dateiimport zeigt Validierungsfehler im Dialog kopierbar und feldgenau an
+- [ ] Upload-Hinweise im Import-Dialog sind strukturiert und verständlich
