@@ -2054,7 +2054,7 @@ function attachFotoZoomListeners(container) {
             fotoZoomTimer = setTimeout(() => {
                 img.classList.remove('foto-zoom-loading');
                 showFotoZoom(img.src, img.alt);
-            }, 3000);
+            }, 2000);
         });
         img.addEventListener('mouseleave', () => {
             clearTimeout(fotoZoomTimer);
