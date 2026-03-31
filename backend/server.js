@@ -826,12 +826,12 @@ async function createToolLabelPdfBuffer(req, tools) {
   const offsetY = Math.max(pagePaddingY, (doc.page.height - totalGridHeight) / 2);
   const labelsPerPage = columns * rows;
   const innerPadding = 6;
-  const qrSize = Math.min(labelHeight - innerPadding * 2, 72);
+  const qrSize = Math.min(labelHeight - innerPadding * 2, 64);
   const textX = innerPadding + qrSize + 6;
   const textWidth = labelWidth - textX - innerPadding;
-  const nameHeight = 16;
-  const inventoryHeight = 14;
-  const metaLineGap = 11;
+  const nameHeight = 24;
+  const inventoryHeight = 18;
+  const locationHeight = 12;
 
   for (let index = 0; index < tools.length; index += 1) {
     if (index > 0 && index % labelsPerPage === 0) {
@@ -854,8 +854,8 @@ async function createToolLabelPdfBuffer(req, tools) {
     const qrX = x + innerPadding;
     const qrY = y + (labelHeight - qrSize) / 2;
     const line1Y = y + innerPadding;
-    const line2Y = line1Y + nameHeight + 2;
-    const line3Y = line2Y + inventoryHeight + 1;
+    const line2Y = line1Y + nameHeight;
+    const line3Y = line2Y + inventoryHeight;
     const lagerplatzValue = tool.lagerplatz || tool.lagerort || tool.standort || 'Nicht angegeben';
 
     doc.save();
@@ -864,7 +864,7 @@ async function createToolLabelPdfBuffer(req, tools) {
 
     doc.image(qrImage, qrX, qrY, { width: qrSize, height: qrSize });
 
-    doc.font('Helvetica-Bold').fontSize(7).fillColor('#111827');
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827');
     doc.text(escapePdfText(tool.name || 'Werkzeug'), x + textX, line1Y, {
       width: textWidth,
       height: nameHeight,
@@ -872,7 +872,7 @@ async function createToolLabelPdfBuffer(req, tools) {
       lineBreak: true
     });
 
-    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827');
+    doc.font('Helvetica-Bold').fontSize(16).fillColor('#111827');
     doc.text(escapePdfText(qrValue), x + textX, line2Y, {
       width: textWidth,
       height: inventoryHeight,
@@ -880,10 +880,10 @@ async function createToolLabelPdfBuffer(req, tools) {
       lineBreak: false
     });
 
-    doc.font('Helvetica').fontSize(7).fillColor('#374151');
+    doc.font('Helvetica').fontSize(10).fillColor('#374151');
     doc.text(`Lager: ${escapePdfText(lagerplatzValue)}`, x + textX, line3Y, {
       width: textWidth,
-      height: 9,
+      height: locationHeight,
       ellipsis: true,
       lineBreak: false
     });
