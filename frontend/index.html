@@ -1309,6 +1309,63 @@
         </div>
     </div>
 
+    <style>
+        /* ==================== Foto-Zoom Overlay ==================== */
+        .werkzeug-card-visual img {
+            cursor: zoom-in;
+        }
+
+        .werkzeug-card-visual img.foto-zoom-loading {
+            outline: 2px solid #9333ea;
+            outline-offset: 2px;
+            transition: outline 0.2s;
+        }
+
+        .foto-zoom-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+            cursor: zoom-out;
+            animation: fotoZoomFadeIn 0.2s ease;
+        }
+
+        .foto-zoom-overlay.active {
+            display: flex;
+        }
+
+        .foto-zoom-overlay img {
+            max-width: 90vw;
+            max-height: 90vh;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+            object-fit: contain;
+            cursor: zoom-out;
+        }
+
+        .foto-zoom-hint {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            font-size: 0.85em;
+            padding: 6px 14px;
+            border-radius: 20px;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        @keyframes fotoZoomFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+    </style>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="main.js"></script>

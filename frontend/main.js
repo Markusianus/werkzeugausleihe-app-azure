@@ -380,6 +380,8 @@ async function loadWerkzeuge(filter = {}) {
 
             container.appendChild(card);
         });
+
+        attachFotoZoomListeners(container);
     } catch (err) {
         const message = err?.message || 'Fehler beim Laden der Werkzeuge';
         updateVerfuegbarkeitsHinweis(filter, 0, message);
@@ -2015,6 +2017,51 @@ async function importCSV(event) {
             details: err.message || 'Fehler beim Import. Bitte Datei und Tool-Admin-Anmeldung prüfen.'
         });
     }
+}
+
+// ==================== Foto Zoom ====================
+
+let fotoZoomTimer = null;
+
+function setupFotoZoomOverlay() {
+    if (document.getElementById('fotoZoomOverlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'fotoZoomOverlay';
+    overlay.className = 'foto-zoom-overlay';
+    overlay.innerHTML = '<img id="fotoZoomImg" src="" alt=""><div class="foto-zoom-hint">Klicken zum Schließen</div>';
+    overlay.addEventListener('click', hideFotoZoom);
+    document.body.appendChild(overlay);
+}
+
+function showFotoZoom(src, alt) {
+    setupFotoZoomOverlay();
+    const img = document.getElementById('fotoZoomImg');
+    img.src = src;
+    img.alt = alt || '';
+    document.getElementById('fotoZoomOverlay').classList.add('active');
+}
+
+function hideFotoZoom() {
+    const overlay = document.getElementById('fotoZoomOverlay');
+    if (overlay) overlay.classList.remove('active');
+}
+
+function attachFotoZoomListeners(container) {
+    container.querySelectorAll('.werkzeug-card-visual img').forEach(img => {
+        img.addEventListener('mouseenter', () => {
+            clearTimeout(fotoZoomTimer);
+            img.classList.add('foto-zoom-loading');
+            fotoZoomTimer = setTimeout(() => {
+                img.classList.remove('foto-zoom-loading');
+                showFotoZoom(img.src, img.alt);
+            }, 3000);
+        });
+        img.addEventListener('mouseleave', () => {
+            clearTimeout(fotoZoomTimer);
+            fotoZoomTimer = null;
+            img.classList.remove('foto-zoom-loading');
+        });
+    });
 }
 
 // ==================== Helper Functions ====================
