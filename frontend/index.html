@@ -271,35 +271,38 @@
 
         .section { margin-top: 30px; }
 
-        /* Collapsible sections */
-        .section-toggle-header {
+        /* Admin section cards – einheitlicher Stil wie Buchungskalender */
+        .admin-section-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            background: white;
+            overflow: hidden;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+        }
+        .admin-section-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 16px;
+            padding: 18px 20px;
+            border-bottom: 1px solid #e5e7eb;
+            background: linear-gradient(135deg, #faf5ff 0%, #f8fafc 100%);
             cursor: pointer;
             user-select: none;
-            padding: 10px 14px;
-            margin: 0 -14px;
-            border-radius: 10px;
             transition: background 0.15s;
         }
-        .section-toggle-header:hover {
-            background: #f3e8ff;
+        .admin-section-header:hover {
+            background: linear-gradient(135deg, #f3e8ff 0%, #f0f4f8 100%);
         }
-        .section-toggle-header h3 {
-            margin: 0;
+        .admin-section-header h3,
+        .admin-section-header h3 {
+            margin: 0 !important;
         }
-        .section-toggle-icon {
-            font-size: 1em;
-            color: #7c3aed;
-            background: rgba(124, 58, 237, 0.08);
-            border-radius: 6px;
-            padding: 3px 8px;
-            transition: transform 0.25s ease;
+        .admin-section-body {
+            padding: 16px 20px 20px;
         }
-        .section-toggle-icon.open {
-            transform: rotate(90deg);
-        }
+
+        /* Collapsible shared */
         .section-collapsible {
             overflow: hidden;
             transition: max-height 0.3s ease, opacity 0.3s ease;
@@ -1012,60 +1015,86 @@
                 </section>
 
                 <section class="section">
-                    <div class="section-toggle-header" onclick="toggleSection('werkzeugeBody', 'werkzeugeIcon')" role="button" aria-expanded="false" aria-controls="werkzeugeBody">
-                        <h3>Werkzeuge</h3>
-                        <span class="section-toggle-icon" id="werkzeugeIcon" aria-hidden="true">▶</span>
-                    </div>
-                    <div id="werkzeugeBody" class="section-collapsible section-collapsed">
-                        <div class="toolbar">
-                            <button class="btn-primary" onclick="showAddWerkzeug()">Neues Werkzeug</button>
-                            <button class="btn-secondary" onclick="showImportCSV()">Import/Export</button>
+                    <div class="admin-section-card">
+                        <div class="admin-section-header" onclick="toggleSection('werkzeugeBody', 'werkzeugeIcon')" role="button" aria-expanded="false" aria-controls="werkzeugeBody">
+                            <h3>Werkzeuge</h3>
+                            <div class="kalender-toggle-btn" id="werkzeugeIcon" aria-hidden="true">▶</div>
                         </div>
-                        <div class="selection-toolbar">
-                            <div class="selection-summary" id="toolSelectionSummary">0 Werkzeuge für PDF-Etiketten ausgewählt</div>
-                            <div class="toolbar" style="margin-bottom:0;">
-                                <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(true)">Alle auswählen</button>
-                                <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(false)">Auswahl leeren</button>
-                                <button class="btn-primary" onclick="exportSelectedToolLabelsPdf()">PDF-Etiketten exportieren</button>
+                        <div id="werkzeugeBody" class="section-collapsible section-collapsed">
+                            <div class="admin-section-body">
+                                <div class="toolbar">
+                                    <button class="btn-primary" onclick="showAddWerkzeug()">Neues Werkzeug</button>
+                                    <button class="btn-secondary" onclick="showImportCSV()">Import/Export</button>
+                                </div>
+                                <div class="selection-toolbar">
+                                    <div class="selection-summary" id="toolSelectionSummary">0 Werkzeuge für PDF-Etiketten ausgewählt</div>
+                                    <div class="toolbar" style="margin-bottom:0;">
+                                        <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(true)">Alle auswählen</button>
+                                        <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(false)">Auswahl leeren</button>
+                                        <button class="btn-primary" onclick="exportSelectedToolLabelsPdf()">PDF-Etiketten exportieren</button>
+                                    </div>
+                                </div>
+                                <table id="adminWerkzeugeTable"></table>
                             </div>
                         </div>
-                        <table id="adminWerkzeugeTable"></table>
                     </div>
                 </section>
 
                 <section class="section">
-                    <h3>Ausleihen</h3>
-                    <div class="filter-bar">
-                        <select id="ausleihenFilter" onchange="filterAusleihen()">
-                            <option value="">Alle</option>
-                            <option value="reserviert">Reserviert</option>
-                            <option value="ausgeliehen">Ausgeliehen</option>
-                            <option value="zurueckgegeben">Zurückgegeben</option>
-                        </select>
-                        <button class="btn-secondary" onclick="loadAusleihen()">Aktualisieren</button>
-                    </div>
-                    <table id="ausleihenTable"></table>
-                </section>
-
-                <section class="section">
-                    <div class="section-toggle-header" onclick="toggleSection('wartungenBody', 'wartungenIcon')" role="button" aria-expanded="false" aria-controls="wartungenBody">
-                        <h3>Wartungen</h3>
-                        <span class="section-toggle-icon" id="wartungenIcon" aria-hidden="true">▶</span>
-                    </div>
-                    <div id="wartungenBody" class="section-collapsible section-collapsed">
-                        <div class="filter-bar">
-                            <button class="btn-secondary" onclick="loadDashboard()">Aktualisieren</button>
+                    <div class="admin-section-card">
+                        <div class="admin-section-header" onclick="toggleSection('ausleihenBody', 'ausleihenIcon')" role="button" aria-expanded="false" aria-controls="ausleihenBody">
+                            <h3>Ausleihen</h3>
+                            <div class="kalender-toggle-btn" id="ausleihenIcon" aria-hidden="true">▶</div>
                         </div>
-                        <table id="wartungenTable"></table>
+                        <div id="ausleihenBody" class="section-collapsible section-collapsed">
+                            <div class="admin-section-body">
+                                <div class="filter-bar">
+                                    <select id="ausleihenFilter" onchange="filterAusleihen()">
+                                        <option value="">Alle</option>
+                                        <option value="reserviert">Reserviert</option>
+                                        <option value="ausgeliehen">Ausgeliehen</option>
+                                        <option value="zurueckgegeben">Zurückgegeben</option>
+                                    </select>
+                                    <button class="btn-secondary" onclick="loadAusleihen()">Aktualisieren</button>
+                                </div>
+                                <table id="ausleihenTable"></table>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
                 <section class="section">
-                    <h3>Schäden</h3>
-                    <div class="filter-bar">
-                        <button class="btn-secondary" onclick="loadSchaeden()">Aktualisieren</button>
+                    <div class="admin-section-card">
+                        <div class="admin-section-header" onclick="toggleSection('wartungenBody', 'wartungenIcon')" role="button" aria-expanded="false" aria-controls="wartungenBody">
+                            <h3>Wartungen</h3>
+                            <div class="kalender-toggle-btn" id="wartungenIcon" aria-hidden="true">▶</div>
+                        </div>
+                        <div id="wartungenBody" class="section-collapsible section-collapsed">
+                            <div class="admin-section-body">
+                                <div class="filter-bar">
+                                    <button class="btn-secondary" onclick="loadDashboard()">Aktualisieren</button>
+                                </div>
+                                <table id="wartungenTable"></table>
+                            </div>
+                        </div>
                     </div>
-                    <table id="schaedenTable"></table>
+                </section>
+
+                <section class="section">
+                    <div class="admin-section-card">
+                        <div class="admin-section-header" onclick="toggleSection('schaedenBody', 'schaedenIcon')" role="button" aria-expanded="false" aria-controls="schaedenBody">
+                            <h3>Schäden</h3>
+                            <div class="kalender-toggle-btn" id="schaedenIcon" aria-hidden="true">▶</div>
+                        </div>
+                        <div id="schaedenBody" class="section-collapsible section-collapsed">
+                            <div class="admin-section-body">
+                                <div class="filter-bar">
+                                    <button class="btn-secondary" onclick="loadSchaeden()">Aktualisieren</button>
+                                </div>
+                                <table id="schaedenTable"></table>
+                            </div>
+                        </div>
+                    </div>
                 </section>
             </div>
         </main>
