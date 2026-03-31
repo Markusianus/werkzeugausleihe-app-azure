@@ -829,6 +829,8 @@ async function createToolLabelPdfBuffer(req, tools) {
   const qrSize = Math.min(labelHeight - innerPadding * 2, 78);
   const textX = innerPadding + qrSize + 6;
   const textWidth = labelWidth - textX - innerPadding;
+  const nameHeight = 20;
+  const metaLineGap = 9;
 
   for (let index = 0; index < tools.length; index += 1) {
     if (index > 0 && index % labelsPerPage === 0) {
@@ -851,8 +853,8 @@ async function createToolLabelPdfBuffer(req, tools) {
     const qrX = x + innerPadding;
     const qrY = y + (labelHeight - qrSize) / 2;
     const line1Y = y + innerPadding;
-    const line2Y = y + innerPadding + 11;
-    const line3Y = y + innerPadding + 22;
+    const line2Y = line1Y + nameHeight + 1;
+    const line3Y = line2Y + metaLineGap;
 
     doc.save();
     doc.rect(x, y, labelWidth, labelHeight).lineWidth(0.5).strokeColor('#d1d5db').stroke();
@@ -863,9 +865,9 @@ async function createToolLabelPdfBuffer(req, tools) {
     doc.font('Helvetica-Bold').fontSize(8).fillColor('#111827');
     doc.text(escapePdfText(tool.name || 'Werkzeug'), x + textX, line1Y, {
       width: textWidth,
-      height: 10,
+      height: nameHeight,
       ellipsis: true,
-      lineBreak: false
+      lineBreak: true
     });
 
     doc.font('Helvetica').fontSize(7).fillColor('#374151');
