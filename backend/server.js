@@ -794,9 +794,17 @@ function buildDefaultUnitLabel(row, index) {
 }
 
 async function createToolLabelPdfBuffer(req, tools) {
+  const MM_TO_PT = 72 / 25.4;
+  const labelWidth = 70 * MM_TO_PT;
+  const labelHeight = 37 * MM_TO_PT;
+  const columns = 3;
+  const rows = 8;
+  const pagePaddingX = 0;
+  const pagePaddingY = 0;
+
   const doc = new PDFDocument({
     size: 'A4',
-    margin: 24,
+    margin: 0,
     info: {
       Title: `QR-Etiketten Werkzeuge (${tools.length})`,
       Author: 'ToolHub',
@@ -812,76 +820,65 @@ async function createToolLabelPdfBuffer(req, tools) {
     doc.on('error', reject);
   });
 
-  const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-  const pageHeight = doc.page.height - doc.page.margins.top - doc.page.margins.bottom;
-  const columns = 2;
-  const rows = 4;
-  const gapX = 18;
-  const gapY = 18;
-  const cardWidth = (pageWidth - gapX * (columns - 1)) / columns;
-  const cardHeight = (pageHeight - gapY * (rows - 1)) / rows;
-  const qrSize = Math.min(cardWidth - 28, cardHeight * 0.58, 150);
+  const totalGridWidth = columns * labelWidth;
+  const totalGridHeight = rows * labelHeight;
+  const offsetX = Math.max(pagePaddingX, (doc.page.width - totalGridWidth) / 2);
+  const offsetY = Math.max(pagePaddingY, (doc.page.height - totalGridHeight) / 2);
+  const labelsPerPage = columns * rows;
+  const innerPadding = 6;
+  const qrSize = Math.min(labelHeight - innerPadding * 2, 78);
+  const textX = innerPadding + qrSize + 6;
+  const textWidth = labelWidth - textX - innerPadding;
 
   for (let index = 0; index < tools.length; index += 1) {
-    if (index > 0 && index % (columns * rows) === 0) {
+    if (index > 0 && index % labelsPerPage === 0) {
       doc.addPage();
     }
 
-    const slotIndex = index % (columns * rows);
+    const slotIndex = index % labelsPerPage;
     const column = slotIndex % columns;
     const row = Math.floor(slotIndex / columns);
-    const x = doc.page.margins.left + column * (cardWidth + gapX);
-    const y = doc.page.margins.top + row * (cardHeight + gapY);
+    const x = offsetX + column * labelWidth;
+    const y = offsetY + row * labelHeight;
     const tool = tools[index];
-    const qrUrl = buildToolQrUrl(req, tool.id);
-    const qrDataUrl = await QRCode.toDataURL(qrUrl, {
-      margin: 1,
-      width: 512,
+    const qrValue = String(tool.inventarnummer || '').trim() || String(tool.id);
+    const qrDataUrl = await QRCode.toDataURL(qrValue, {
+      margin: 0,
+      width: 256,
       errorCorrectionLevel: 'M'
     });
     const qrImage = Buffer.from(qrDataUrl.split(',')[1], 'base64');
+    const qrX = x + innerPadding;
+    const qrY = y + (labelHeight - qrSize) / 2;
+    const line1Y = y + innerPadding;
+    const line2Y = y + innerPadding + 11;
+    const line3Y = y + innerPadding + 22;
 
     doc.save();
-    doc.roundedRect(x, y, cardWidth, cardHeight, 12).lineWidth(1).strokeColor('#d1d5db').stroke();
+    doc.rect(x, y, labelWidth, labelHeight).lineWidth(0.5).strokeColor('#d1d5db').stroke();
     doc.restore();
 
-    doc.font('Helvetica-Bold').fontSize(16).fillColor('#111827');
-    doc.text(escapePdfText(tool.name), x + 14, y + 14, {
-      width: cardWidth - 28,
-      align: 'left',
-      ellipsis: true,
-      height: 38
-    });
-
-    doc.font('Helvetica').fontSize(11).fillColor('#4b5563');
-    doc.text(`Inventarnr.: ${escapePdfText(tool.inventarnummer)}`, x + 14, y + 42, {
-      width: cardWidth - 28,
-      align: 'left',
-      ellipsis: true
-    });
-
-    if (tool.kategorie) {
-      doc.fontSize(10).fillColor('#6b7280');
-      doc.text(`Kategorie: ${escapePdfText(tool.kategorie)}`, x + 14, y + 58, {
-        width: cardWidth - 28,
-        ellipsis: true
-      });
-    }
-
-    const qrX = x + (cardWidth - qrSize) / 2;
-    const qrY = y + 80;
     doc.image(qrImage, qrX, qrY, { width: qrSize, height: qrSize });
 
-    doc.font('Helvetica').fontSize(8).fillColor('#6b7280');
-    doc.text('QR-Code zum Werkzeug öffnen/scannen', x + 14, qrY + qrSize + 8, {
-      width: cardWidth - 28,
-      align: 'center'
+    doc.font('Helvetica-Bold').fontSize(8).fillColor('#111827');
+    doc.text(escapePdfText(tool.name || 'Werkzeug'), x + textX, line1Y, {
+      width: textWidth,
+      height: 10,
+      ellipsis: true,
+      lineBreak: false
     });
 
-    doc.fontSize(7).fillColor('#9ca3af');
-    doc.text(qrUrl, x + 18, y + cardHeight - 26, {
-      width: cardWidth - 36,
-      align: 'center',
+    doc.font('Helvetica').fontSize(7).fillColor('#374151');
+    doc.text(`Inv.: ${escapePdfText(qrValue)}`, x + textX, line2Y, {
+      width: textWidth,
+      height: 9,
+      ellipsis: true,
+      lineBreak: false
+    });
+
+    doc.text(`Lager: ${escapePdfText(tool.lagerplatz || 'Nicht angegeben')}`, x + textX, line3Y, {
+      width: textWidth,
+      height: 9,
       ellipsis: true,
       lineBreak: false
     });
