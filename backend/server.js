@@ -1562,6 +1562,104 @@ app.post('/api/werkzeuge', requireAdmin, adminActionLimiter, async (req, res) =>
   }
 });
 
+app.post('/api/werkzeuge/bulk', requireAdmin, adminActionLimiter, async (req, res) => {
+  const rows = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'Erwartet wird ein Array mit mindestens einem Werkzeug.' });
+  }
+  if (rows.length > 500) {
+    return res.status(400).json({ error: 'Maximal 500 Werkzeuge pro Import erlaubt.' });
+  }
+
+  const imported = [];
+  const errors = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const validation = validateToolPayload(row);
+    if (!validation.valid) {
+      errors.push({
+        inventarnummer: row.inventarnummer || `Zeile ${i + 1}`,
+        error: validation.errors ? validation.errors.join('; ') : 'Ungültige Daten'
+      });
+      continue;
+    }
+
+    const {
+      name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz,
+      wartungsintervall_tage, letzte_wartung_am, wartung_notiz,
+      bestand_gesamt, bestand_defekt, bestand_in_wartung
+    } = validation.payload;
+    const naechsteWartungAm = calculateNextMaintenanceDate(letzte_wartung_am, wartungsintervall_tage);
+
+    try {
+      const result = await pool.query(`
+        INSERT INTO werkzeuge (
+          name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz, status,
+          wartungsintervall_tage, letzte_wartung_am, naechste_wartung_am, wartung_notiz,
+          bestand_gesamt, bestand_defekt, bestand_in_wartung, einheitenmodell
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'verfuegbar', $9, $10, $11, $12, $13, $14, $15, $16)
+        RETURNING *
+      `, [
+        name, icon, beschreibung, inventarnummer, zustand, foto, kategorie, lagerplatz,
+        wartungsintervall_tage, letzte_wartung_am, naechsteWartungAm,
+        coerceNullableText(wartung_notiz),
+        bestand_gesamt || 1, bestand_defekt || 0, bestand_in_wartung || 0,
+        (bestand_gesamt || 1) > 1 ? 'tracked_units' : 'legacy_single'
+      ]);
+
+      await logAdminAudit({
+        req,
+        action: 'tool.create',
+        metadata: { toolId: result.rows[0].id, inventarnummer, source: 'bulk_import' }
+      });
+
+      if ((bestand_gesamt || 1) > 0) {
+        for (let index = 1; index <= (bestand_gesamt || 1); index += 1) {
+          const unitStatus = index <= (bestand_defekt || 0)
+            ? 'defekt'
+            : (index <= ((bestand_defekt || 0) + (bestand_in_wartung || 0)) ? 'reparatur' : 'verfuegbar');
+          const unitCode = `WZE-${result.rows[0].id}-${String(index).padStart(3, '0')}`;
+          const unitInventarnummer = buildSafeUnitInventoryNumber(inventarnummer, result.rows[0].id, index);
+          const inserted = await pool.query(`
+            INSERT INTO werkzeug_einheiten (
+              werkzeug_id, einheiten_code, inventarnummer, bezeichnung, status, zustand, lagerplatz, qr_code
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id
+          `, [
+            result.rows[0].id, unitCode, unitInventarnummer,
+            buildDefaultUnitLabel(result.rows[0], index),
+            unitStatus, zustand || null, lagerplatz || null, unitCode
+          ]);
+
+          await pool.query(`
+            INSERT INTO werkzeug_einheit_historie (werkzeug_einheit_id, event_typ, event_status, referenz_typ, referenz_id, notiz, metadata)
+            VALUES ($1, 'created', $2, 'werkzeug', $3, $4, $5::jsonb)
+          `, [
+            inserted.rows[0].id, unitStatus, result.rows[0].id,
+            'Einheit beim Bulk-Import erstellt',
+            JSON.stringify({ source: 'bulk_import', index })
+          ]);
+        }
+      }
+
+      imported.push(enrichToolRow(result.rows[0]));
+    } catch (err) {
+      errors.push({
+        inventarnummer: inventarnummer || `Zeile ${i + 1}`,
+        error: err.code === '23505' ? 'Inventarnummer bereits vorhanden' : (err.message || 'Unbekannter Fehler')
+      });
+    }
+  }
+
+  res.status(errors.length && !imported.length ? 400 : 207).json({
+    imported: imported.length,
+    errors
+  });
+});
+
 app.put('/api/werkzeuge/:id', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;

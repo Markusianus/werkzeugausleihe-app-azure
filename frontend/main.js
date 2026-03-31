@@ -1918,23 +1918,29 @@ async function importCSV(event) {
             return;
         }
 
-        for (const data of validRows) {
-            try {
-                await apiCall('/werkzeuge', {
-                    method: 'POST',
-                    body: JSON.stringify(data)
-                });
-                imported++;
-            } catch (err) {
-                const detail = err.message || 'Unbekannter Fehler';
-                rowErrors.push(`Zeile mit Inventarnummer „${data.inventarnummer || 'unbekannt'}": ${detail}`);
-            }
+        const bulkResult = await apiCall('/werkzeuge/bulk', {
+            method: 'POST',
+            body: JSON.stringify(validRows)
+        });
+
+        imported = bulkResult.imported || 0;
+
+        if (bulkResult.errors && bulkResult.errors.length) {
+            bulkResult.errors.forEach(e => {
+                rowErrors.push(`Zeile mit Inventarnummer „${e.inventarnummer || 'unbekannt'}": ${e.error}`);
+            });
         }
 
         if (rowErrors.length) {
             const feedback = buildImportErrorMessage([], rowErrors);
-            showImportFeedback({ type: 'error', ...feedback });
+            const hasPartialSuccess = imported > 0;
+            showImportFeedback({
+                type: hasPartialSuccess ? 'warning' : 'error',
+                title: hasPartialSuccess ? `Import teilweise erfolgreich (${imported} von ${validRows.length})` : 'Import fehlgeschlagen',
+                ...feedback
+            });
             event.target.value = '';
+            if (hasPartialSuccess) loadDashboard();
             return;
         }
 
