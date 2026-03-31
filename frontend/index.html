@@ -1026,6 +1026,10 @@
                                     <button class="btn-primary" onclick="showAddWerkzeug()">Neues Werkzeug</button>
                                     <button class="btn-secondary" onclick="showImportCSV()">Import/Export</button>
                                 </div>
+                                <div class="filter-bar" style="margin-bottom:8px;">
+                                    <input type="text" id="adminWerkzeugSuche" placeholder="🔍 Werkzeug suchen …" oninput="filterAdminWerkzeuge()" style="flex:1;min-width:200px;">
+                                    <button class="btn-secondary btn-small" onclick="document.getElementById('adminWerkzeugSuche').value='';filterAdminWerkzeuge()">✕ Zurücksetzen</button>
+                                </div>
                                 <div class="selection-toolbar">
                                     <div class="selection-summary" id="toolSelectionSummary">0 Werkzeuge für PDF-Etiketten ausgewählt</div>
                                     <div class="toolbar" style="margin-bottom:0;">

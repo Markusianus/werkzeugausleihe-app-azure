@@ -982,6 +982,17 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
     }
 }
 
+function filterAdminWerkzeuge() {
+    const query = (document.getElementById('adminWerkzeugSuche')?.value || '').toLowerCase().trim();
+    const table = document.getElementById('adminWerkzeugeTable');
+    if (!table) return;
+    const rows = Array.from(table.querySelectorAll('tbody tr'));
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = (!query || text.includes(query)) ? '' : 'none';
+    });
+}
+
 function showAddWerkzeug() {
     document.getElementById('werkzeugForm').reset();
     document.getElementById('werkzeugId').value = '';
