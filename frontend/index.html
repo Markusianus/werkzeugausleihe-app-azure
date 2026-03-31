@@ -642,6 +642,46 @@
         }
 
         /* Buchungskalender */
+        .kalender-header-toggle {
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        .kalender-header-toggle:hover {
+            background: linear-gradient(135deg, #f3e8ff 0%, #f0f4f8 100%);
+        }
+        .kalender-toggle-btn {
+            font-size: 1.1em;
+            color: #7c3aed;
+            transition: transform 0.25s ease;
+            align-self: center;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: rgba(124, 58, 237, 0.08);
+        }
+        .kalender-toggle-btn.open {
+            transform: rotate(90deg);
+        }
+        .kalender-body {
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            max-height: 4000px;
+            opacity: 1;
+        }
+        .kalender-body-collapsed {
+            max-height: 0;
+            opacity: 0;
+            pointer-events: none;
+        }
+        .kalender-controls-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            padding: 12px 20px;
+            border-bottom: 1px solid #f3f4f6;
+            background: #fafafa;
+        }
         .kalender-card {
             border: 1px solid #e5e7eb;
             border-radius: 16px;
@@ -653,7 +693,7 @@
         .kalender-header {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             gap: 16px;
             padding: 18px 20px;
             border-bottom: 1px solid #e5e7eb;
@@ -907,12 +947,15 @@
 
                 <section class="section">
                     <div class="kalender-card">
-                        <div class="kalender-header">
+                        <div class="kalender-header kalender-header-toggle" onclick="toggleKalender()" role="button" aria-expanded="false" aria-controls="kalenderBody" style="cursor:pointer;">
                             <div>
                                 <h3>Buchungskalender</h3>
-                                <p class="kalender-summary" id="kalenderSummary">4-Wochen-Ansicht wird geladen…</p>
+                                <p class="kalender-summary" id="kalenderSummary">Klicken zum Öffnen</p>
                             </div>
-                            <div class="toolbar" style="margin-bottom:0; justify-content:flex-end;">
+                            <div class="kalender-toggle-btn" id="kalenderToggleIcon" aria-hidden="true">▶</div>
+                        </div>
+                        <div id="kalenderBody" class="kalender-body kalender-body-collapsed">
+                            <div class="kalender-controls-bar">
                                 <input type="date" id="kalenderStart">
                                 <select id="kalenderKategorieFilter">
                                     <option value="">Alle Kategorien</option>
@@ -922,8 +965,8 @@
                                 <button class="btn-secondary btn-small" onclick="shiftKalender(7)">1 Woche →</button>
                                 <button class="btn-primary btn-small" onclick="loadKalender()">Aktualisieren</button>
                             </div>
+                            <div id="kalenderContainer"></div>
                         </div>
-                        <div id="kalenderContainer"></div>
                     </div>
                 </section>
 

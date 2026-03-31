@@ -566,7 +566,7 @@ async function submitReservierung() {
         closeModal('warenkorbModal');
         loadWerkzeuge();
         loadMeineAusleihen();
-        if (currentMode === 'admin') {
+        if (currentMode === 'admin' && kalenderLoaded) {
             loadKalender();
         }
     } catch (err) {
@@ -804,7 +804,7 @@ async function loadDashboard() {
         loadAdminWerkzeuge(werkzeuge);
         loadAusleihen();
         loadSchaeden();
-        loadKalender();
+        // Kalender startet eingeklappt – wird erst bei Öffnen geladen (toggleKalender)
         loadWartungen(wartungen);
     } catch (err) {
         console.error('Fehler beim Laden der Stats:', err);
@@ -1372,6 +1372,35 @@ function renderKalenderKategorieFilter() {
         if (kategorie === kalenderState.kategorie) option.selected = true;
         select.appendChild(option);
     });
+}
+
+let kalenderLoaded = false;
+
+function toggleKalender() {
+    const body = document.getElementById('kalenderBody');
+    const icon = document.getElementById('kalenderToggleIcon');
+    const header = document.querySelector('.kalender-header-toggle');
+    const summary = document.getElementById('kalenderSummary');
+
+    if (!body) return;
+
+    const isCollapsed = body.classList.contains('kalender-body-collapsed');
+
+    if (isCollapsed) {
+        body.classList.remove('kalender-body-collapsed');
+        if (icon) icon.classList.add('open');
+        if (header) header.setAttribute('aria-expanded', 'true');
+        // Lazy-load on first open
+        if (!kalenderLoaded) {
+            kalenderLoaded = true;
+            loadKalender();
+        }
+    } else {
+        body.classList.add('kalender-body-collapsed');
+        if (icon) icon.classList.remove('open');
+        if (header) header.setAttribute('aria-expanded', 'false');
+        if (summary) summary.textContent = 'Klicken zum Öffnen';
+    }
 }
 
 function shiftKalender(days) {
