@@ -1654,9 +1654,13 @@ app.post('/api/werkzeuge/bulk', requireAdmin, adminActionLimiter, async (req, re
     }
   }
 
-  res.status(errors.length && !imported.length ? 400 : 207).json({
+  const allFailed = errors.length > 0 && imported.length === 0;
+  res.status(207).json({
     imported: imported.length,
-    errors
+    errors,
+    ...(allFailed && {
+      error: `Alle ${errors.length} Zeile(n) konnten nicht importiert werden. Bitte Fehlerliste prüfen.`
+    })
   });
 });
 

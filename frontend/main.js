@@ -1903,7 +1903,12 @@ async function importCSV(event) {
             if (!hasAnyLagerplatzValue && !data.lagerplatz) {
                 data.lagerplatz = 'Nicht angegeben';
             }
-            const validation = validateImportRow(data, index + 2);
+            // Strip empty-string values from optional fields to avoid
+            // server-side validation errors (e.g. status: '' → "Ungültiger Status")
+            const cleanData = Object.fromEntries(
+                Object.entries(data).filter(([, v]) => v !== '')
+            );
+            const validation = validateImportRow(cleanData, index + 2);
             if (validation.valid) {
                 validRows.push(validation.data);
             } else {
