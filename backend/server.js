@@ -829,7 +829,7 @@ async function createToolLabelPdfBuffer(req, tools) {
   const qrSize = Math.min(labelHeight - innerPadding * 2, 64);
   const textX = innerPadding + qrSize + 6;
   const textWidth = labelWidth - textX - innerPadding;
-  const nameHeight = 24;
+  const nameHeight = 28;
   const inventoryHeight = 18;
   const locationHeight = 12;
 
@@ -854,8 +854,8 @@ async function createToolLabelPdfBuffer(req, tools) {
     const qrX = x + innerPadding;
     const qrY = y + (labelHeight - qrSize) / 2;
     const line1Y = y + innerPadding;
-    const line2Y = line1Y + nameHeight;
-    const line3Y = line2Y + inventoryHeight;
+    const line2Y = y + 12;
+    const line3Y = y + labelHeight - innerPadding - locationHeight;
     const lagerplatzValue = tool.lagerplatz || tool.lagerort || tool.standort || 'Nicht angegeben';
 
     doc.save();
@@ -876,6 +876,7 @@ async function createToolLabelPdfBuffer(req, tools) {
     doc.text(escapePdfText(qrValue), x + textX, line2Y, {
       width: textWidth,
       height: inventoryHeight,
+      align: 'center',
       ellipsis: true,
       lineBreak: false
     });
