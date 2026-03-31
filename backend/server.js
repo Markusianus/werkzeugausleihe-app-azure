@@ -826,11 +826,12 @@ async function createToolLabelPdfBuffer(req, tools) {
   const offsetY = Math.max(pagePaddingY, (doc.page.height - totalGridHeight) / 2);
   const labelsPerPage = columns * rows;
   const innerPadding = 6;
-  const qrSize = Math.min(labelHeight - innerPadding * 2, 78);
+  const qrSize = Math.min(labelHeight - innerPadding * 2, 72);
   const textX = innerPadding + qrSize + 6;
   const textWidth = labelWidth - textX - innerPadding;
-  const nameHeight = 20;
-  const metaLineGap = 9;
+  const nameHeight = 16;
+  const inventoryHeight = 14;
+  const metaLineGap = 11;
 
   for (let index = 0; index < tools.length; index += 1) {
     if (index > 0 && index % labelsPerPage === 0) {
@@ -853,8 +854,9 @@ async function createToolLabelPdfBuffer(req, tools) {
     const qrX = x + innerPadding;
     const qrY = y + (labelHeight - qrSize) / 2;
     const line1Y = y + innerPadding;
-    const line2Y = line1Y + nameHeight + 1;
-    const line3Y = line2Y + metaLineGap;
+    const line2Y = line1Y + nameHeight + 2;
+    const line3Y = line2Y + inventoryHeight + 1;
+    const lagerplatzValue = tool.lagerplatz || tool.lagerort || tool.standort || 'Nicht angegeben';
 
     doc.save();
     doc.rect(x, y, labelWidth, labelHeight).lineWidth(0.5).strokeColor('#d1d5db').stroke();
@@ -862,7 +864,7 @@ async function createToolLabelPdfBuffer(req, tools) {
 
     doc.image(qrImage, qrX, qrY, { width: qrSize, height: qrSize });
 
-    doc.font('Helvetica-Bold').fontSize(8).fillColor('#111827');
+    doc.font('Helvetica-Bold').fontSize(7).fillColor('#111827');
     doc.text(escapePdfText(tool.name || 'Werkzeug'), x + textX, line1Y, {
       width: textWidth,
       height: nameHeight,
@@ -870,15 +872,16 @@ async function createToolLabelPdfBuffer(req, tools) {
       lineBreak: true
     });
 
-    doc.font('Helvetica').fontSize(7).fillColor('#374151');
-    doc.text(`Inv.: ${escapePdfText(qrValue)}`, x + textX, line2Y, {
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827');
+    doc.text(escapePdfText(qrValue), x + textX, line2Y, {
       width: textWidth,
-      height: 9,
+      height: inventoryHeight,
       ellipsis: true,
       lineBreak: false
     });
 
-    doc.text(`Lager: ${escapePdfText(tool.lagerplatz || 'Nicht angegeben')}`, x + textX, line3Y, {
+    doc.font('Helvetica').fontSize(7).fillColor('#374151');
+    doc.text(`Lager: ${escapePdfText(lagerplatzValue)}`, x + textX, line3Y, {
       width: textWidth,
       height: 9,
       ellipsis: true,
@@ -2368,8 +2371,8 @@ app.get('/api/export/werkzeuge/pdf-labels', async (req, res) => {
 
     const uniqueIds = [...new Set(rawIds)];
     const query = uniqueIds.length
-      ? 'SELECT id, name, inventarnummer, kategorie FROM werkzeuge WHERE id = ANY($1::int[]) ORDER BY name'
-      : 'SELECT id, name, inventarnummer, kategorie FROM werkzeuge ORDER BY name';
+      ? 'SELECT id, name, inventarnummer, kategorie, lagerplatz FROM werkzeuge WHERE id = ANY($1::int[]) ORDER BY name'
+      : 'SELECT id, name, inventarnummer, kategorie, lagerplatz FROM werkzeuge ORDER BY name';
     const params = uniqueIds.length ? [uniqueIds] : [];
     const result = await pool.query(query, params);
 
