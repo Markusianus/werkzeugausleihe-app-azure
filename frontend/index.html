@@ -271,6 +271,47 @@
 
         .section { margin-top: 30px; }
 
+        /* Collapsible sections */
+        .section-toggle-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            padding: 10px 14px;
+            margin: 0 -14px;
+            border-radius: 10px;
+            transition: background 0.15s;
+        }
+        .section-toggle-header:hover {
+            background: #f3e8ff;
+        }
+        .section-toggle-header h3 {
+            margin: 0;
+        }
+        .section-toggle-icon {
+            font-size: 1em;
+            color: #7c3aed;
+            background: rgba(124, 58, 237, 0.08);
+            border-radius: 6px;
+            padding: 3px 8px;
+            transition: transform 0.25s ease;
+        }
+        .section-toggle-icon.open {
+            transform: rotate(90deg);
+        }
+        .section-collapsible {
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.3s ease;
+            max-height: 8000px;
+            opacity: 1;
+        }
+        .section-collapsed {
+            max-height: 0;
+            opacity: 0;
+            pointer-events: none;
+        }
+
         .hidden { display: none; }
         .loading { text-align: center; padding: 40px; font-size: 1.1em; color: #9333ea; }
 
@@ -971,20 +1012,25 @@
                 </section>
 
                 <section class="section">
-                    <h3>Werkzeuge</h3>
-                    <div class="toolbar">
-                        <button class="btn-primary" onclick="showAddWerkzeug()">Neues Werkzeug</button>
-                        <button class="btn-secondary" onclick="showImportCSV()">Import/Export</button>
+                    <div class="section-toggle-header" onclick="toggleSection('werkzeugeBody', 'werkzeugeIcon')" role="button" aria-expanded="false" aria-controls="werkzeugeBody">
+                        <h3>Werkzeuge</h3>
+                        <span class="section-toggle-icon" id="werkzeugeIcon" aria-hidden="true">▶</span>
                     </div>
-                    <div class="selection-toolbar">
-                        <div class="selection-summary" id="toolSelectionSummary">0 Werkzeuge für PDF-Etiketten ausgewählt</div>
-                        <div class="toolbar" style="margin-bottom:0;">
-                            <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(true)">Alle auswählen</button>
-                            <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(false)">Auswahl leeren</button>
-                            <button class="btn-primary" onclick="exportSelectedToolLabelsPdf()">PDF-Etiketten exportieren</button>
+                    <div id="werkzeugeBody" class="section-collapsible section-collapsed">
+                        <div class="toolbar">
+                            <button class="btn-primary" onclick="showAddWerkzeug()">Neues Werkzeug</button>
+                            <button class="btn-secondary" onclick="showImportCSV()">Import/Export</button>
                         </div>
+                        <div class="selection-toolbar">
+                            <div class="selection-summary" id="toolSelectionSummary">0 Werkzeuge für PDF-Etiketten ausgewählt</div>
+                            <div class="toolbar" style="margin-bottom:0;">
+                                <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(true)">Alle auswählen</button>
+                                <button class="btn-secondary btn-small" onclick="selectAllToolsForPdf(false)">Auswahl leeren</button>
+                                <button class="btn-primary" onclick="exportSelectedToolLabelsPdf()">PDF-Etiketten exportieren</button>
+                            </div>
+                        </div>
+                        <table id="adminWerkzeugeTable"></table>
                     </div>
-                    <table id="adminWerkzeugeTable"></table>
                 </section>
 
                 <section class="section">
@@ -1002,11 +1048,16 @@
                 </section>
 
                 <section class="section">
-                    <h3>Wartungen</h3>
-                    <div class="filter-bar">
-                        <button class="btn-secondary" onclick="loadDashboard()">Aktualisieren</button>
+                    <div class="section-toggle-header" onclick="toggleSection('wartungenBody', 'wartungenIcon')" role="button" aria-expanded="false" aria-controls="wartungenBody">
+                        <h3>Wartungen</h3>
+                        <span class="section-toggle-icon" id="wartungenIcon" aria-hidden="true">▶</span>
                     </div>
-                    <table id="wartungenTable"></table>
+                    <div id="wartungenBody" class="section-collapsible section-collapsed">
+                        <div class="filter-bar">
+                            <button class="btn-secondary" onclick="loadDashboard()">Aktualisieren</button>
+                        </div>
+                        <table id="wartungenTable"></table>
+                    </div>
                 </section>
 
                 <section class="section">

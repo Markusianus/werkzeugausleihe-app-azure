@@ -1376,6 +1376,25 @@ function renderKalenderKategorieFilter() {
 
 let kalenderLoaded = false;
 
+function toggleSection(bodyId, iconId) {
+    const body = document.getElementById(bodyId);
+    const icon = document.getElementById(iconId);
+    const header = body ? body.previousElementSibling : null;
+
+    if (!body) return;
+
+    const isCollapsed = body.classList.contains('section-collapsed');
+    if (isCollapsed) {
+        body.classList.remove('section-collapsed');
+        if (icon) icon.classList.add('open');
+        if (header) header.setAttribute('aria-expanded', 'true');
+    } else {
+        body.classList.add('section-collapsed');
+        if (icon) icon.classList.remove('open');
+        if (header) header.setAttribute('aria-expanded', 'false');
+    }
+}
+
 function toggleKalender() {
     const body = document.getElementById('kalenderBody');
     const icon = document.getElementById('kalenderToggleIcon');
