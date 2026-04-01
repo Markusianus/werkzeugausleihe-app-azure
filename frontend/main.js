@@ -292,6 +292,12 @@ function buildWerkzeugDetailHtml(w) {
         <button class="btn-primary" onclick="addToWarenkorb(${Number(w.id)}); closeModal('toolDetailModal');" ${!isVerfuegbar ? 'disabled' : ''}>
             ${isVerfuegbar ? '➕ In den Warenkorb' : 'Nicht verfügbar'}
         </button>
+        <div style="margin-top:24px;text-align:left;">
+            <h4 style="margin-bottom:12px;font-size:1em;color:#374151;">📋 Letzte Ausleihen</h4>
+            <ul id="toolDetailHistorie" style="list-style:none;padding:0;display:grid;gap:10px;">
+                <li style="color:#9ca3af;font-size:0.9em;">Lade…</li>
+            </ul>
+        </div>
     `;
 }
 
@@ -303,6 +309,33 @@ async function showWerkzeugDetail(id) {
         const url = new URL(window.location.href);
         url.searchParams.set('tool', id);
         window.history.replaceState({}, '', url);
+
+        // Ausleihen-Historie asynchron nachladen
+        apiCall(`/werkzeuge/${id}/ausleihen-historie?limit=3`).then(items => {
+            const list = document.getElementById('toolDetailHistorie');
+            if (!list) return;
+            if (!items.length) {
+                list.innerHTML = '<li style="color:#9ca3af;font-size:0.9em;">Noch keine Ausleihen vorhanden.</li>';
+                return;
+            }
+            list.innerHTML = items.map(item => {
+                const von = formatDate(item.datum_von);
+                const bis = formatDate(item.datum_bis);
+                const rueckgabe = item.zurueckgegeben_am
+                    ? `<span style="font-size:0.8em;color:#6b7280;"> · zurück ${escapeHtml(formatDate(item.zurueckgegeben_am))}</span>`
+                    : '';
+                return `
+                    <li style="border-left:3px solid #7c3aed;padding:6px 0 6px 12px;font-size:0.9em;">
+                        <div style="font-weight:600;color:#111827;">${escapeHtml(item.mitarbeiter_name)}</div>
+                        <div style="color:#6b7280;">${escapeHtml(von)} – ${escapeHtml(bis)}${rueckgabe}</div>
+                        <div style="margin-top:3px;">${getAusleiheStatusBadge(item.status)}</div>
+                    </li>
+                `;
+            }).join('');
+        }).catch(() => {
+            const list = document.getElementById('toolDetailHistorie');
+            if (list) list.innerHTML = '<li style="color:#9ca3af;font-size:0.9em;">Verlauf konnte nicht geladen werden.</li>';
+        });
     } catch (err) {
         showToast('❌ Werkzeug aus QR-Code nicht gefunden');
         const url = new URL(window.location.href);
