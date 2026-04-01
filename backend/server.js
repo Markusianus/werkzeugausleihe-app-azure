@@ -853,13 +853,11 @@ async function createToolLabelPdfBuffer(req, tools) {
     const qrImage = Buffer.from(qrDataUrl.split(',')[1], 'base64');
     const qrX = x + innerPadding;
     const qrY = y + (labelHeight - qrSize) / 2;
-    // Layout: Bezeichnung oben → Inventarnummer Mitte → Lagerplatz unten
-    const nameLineHeight = 14;       // 11pt font + leading
-    const nameLinesMax = 2;
-    const nameBlockHeight = nameLineHeight * nameLinesMax;
-    const line1Y = y + innerPadding;                                // Bezeichnung oben
-    const line2Y = line1Y + nameBlockHeight + 4;                    // Inventarnummer nach Bezeichnung
-    const line3Y = y + labelHeight - innerPadding - locationHeight; // Lagerplatz ganz unten
+    // Layout: Bezeichnung oben (mehrzeilig) → Inventarnummer knapp über Lagerplatz → Lagerplatz unten
+    const line3Y = y + labelHeight - innerPadding - locationHeight;           // Lagerplatz unten
+    const line2Y = line3Y - inventoryHeight - 4;                              // Inventarnummer direkt darüber
+    const nameMaxHeight = line2Y - (y + innerPadding) - 4;                    // Bezeichnung füllt Platz oben
+    const line1Y = y + innerPadding;
     const lagerplatzValue = tool.lagerplatz || tool.lagerort || tool.standort || 'Nicht angegeben';
 
     doc.save();
@@ -868,16 +866,15 @@ async function createToolLabelPdfBuffer(req, tools) {
 
     doc.image(qrImage, qrX, qrY, { width: qrSize, height: qrSize });
 
-    // Bezeichnung (Name) — oben, fett, bis zu 2 Zeilen
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827');
+    // Bezeichnung (Name) — oben, fett, mehrzeilig, kein Abschneiden
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827');
     doc.text(escapePdfText(tool.name || 'Werkzeug'), x + textX, line1Y, {
       width: textWidth,
-      height: nameBlockHeight,
-      ellipsis: true,
+      height: nameMaxHeight,
       lineBreak: true
     });
 
-    // Inventarnummer — mittig, gut lesbar
+    // Inventarnummer — knapp über dem Lagerplatz, gut lesbar
     doc.font('Helvetica-Bold').fontSize(13).fillColor('#111827');
     doc.text(escapePdfText(qrValue), x + textX, line2Y, {
       width: textWidth,
@@ -886,7 +883,7 @@ async function createToolLabelPdfBuffer(req, tools) {
       lineBreak: false
     });
 
-    // Lagerplatz — unten, klein
+    // Lagerplatz — unten
     doc.font('Helvetica').fontSize(9).fillColor('#374151');
     doc.text(`Lager: ${escapePdfText(lagerplatzValue)}`, x + textX, line3Y, {
       width: textWidth,
