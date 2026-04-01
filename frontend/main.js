@@ -946,7 +946,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
             const checked = selectedToolIdsForPdf.has(Number(w.id)) ? 'checked' : '';
             row.innerHTML = `
                 <td class="checkbox-cell"><input type="checkbox" data-tool-select="true" value="${Number(w.id)}" ${checked} onchange="toggleToolSelectionForPdf(${Number(w.id)}, this.checked)"></td>
-                <td>${w.foto ? `<img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;display:block;">` : escapeHtml(w.icon || '🔧')}</td>
+                <td>${w.foto ? `<img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;display:block;cursor:zoom-in;" onclick="showFotoZoom('${escapeForSingleQuotedJs(w.foto)}','${escapeForSingleQuotedJs(w.name)}')">` : escapeHtml(w.icon || '🔧')}</td>
                 <td>${escapeHtml(w.name)}</td>
                 <td>${escapeHtml(w.inventarnummer)}</td>
                 <td>${escapeHtml(w.kategorie || '-')}</td>
@@ -2059,18 +2059,9 @@ function hideFotoZoom() {
 
 function attachFotoZoomListeners(container) {
     container.querySelectorAll('.werkzeug-card-visual img').forEach(img => {
-        img.addEventListener('mouseenter', () => {
-            clearTimeout(fotoZoomTimer);
-            img.classList.add('foto-zoom-loading');
-            fotoZoomTimer = setTimeout(() => {
-                img.classList.remove('foto-zoom-loading');
-                showFotoZoom(img.src, img.alt);
-            }, 2000);
-        });
-        img.addEventListener('mouseleave', () => {
-            clearTimeout(fotoZoomTimer);
-            fotoZoomTimer = null;
-            img.classList.remove('foto-zoom-loading');
+        img.style.cursor = 'zoom-in';
+        img.addEventListener('click', () => {
+            showFotoZoom(img.src, img.alt);
         });
     });
 }
