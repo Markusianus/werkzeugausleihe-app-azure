@@ -879,8 +879,8 @@ async function createToolLabelPdfBuffer(req, tools) {
     doc.restore();
 
     // Inventarnummer im Header — zentriert, weiß, auffällig
-    doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff');
-    doc.text(escapePdfText(qrValue), x + 6, y + (headerH - 13) / 2, {
+    doc.font('Helvetica-Bold').fontSize(15).fillColor('#ffffff');
+    doc.text(escapePdfText(qrValue), x + 6, y + (headerH - 15) / 2, {
       width: labelWidth - 12,
       height: headerH,
       align: 'center',
@@ -902,7 +902,7 @@ async function createToolLabelPdfBuffer(req, tools) {
     doc.restore();
 
     doc.font('Helvetica').fontSize(10).fillColor('#374151');
-    doc.text(`📍 Lager: ${escapePdfText(lagerplatzValue)}`,
+    doc.text(`Lager: ${escapePdfText(lagerplatzValue)}`,
       x + 8, y + headerH + contentH + (footerH - 10) / 2, {
         width: labelWidth - 16,
         height: footerH,
