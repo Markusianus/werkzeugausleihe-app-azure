@@ -851,45 +851,87 @@ async function createToolLabelPdfBuffer(req, tools) {
       errorCorrectionLevel: 'M'
     });
     const qrImage = Buffer.from(qrDataUrl.split(',')[1], 'base64');
-    const qrX = x + innerPadding;
-    const qrY = y + (labelHeight - qrSize) / 2;
-    // Layout: Bezeichnung oben (mehrzeilig) → Inventarnummer knapp über Lagerplatz → Lagerplatz unten
-    const line3Y = y + labelHeight - innerPadding - locationHeight;           // Lagerplatz unten
-    const line2Y = line3Y - inventoryHeight - 4;                              // Inventarnummer direkt darüber
-    const nameMaxHeight = line2Y - (y + innerPadding) - 4;                    // Bezeichnung füllt Platz oben
-    const line1Y = y + innerPadding;
     const lagerplatzValue = tool.lagerplatz || tool.lagerort || tool.standort || 'Nicht angegeben';
+    const radius = 4;
 
+    // Zonen-Höhen
+    const headerH = 22;
+    const footerH = 18;
+    const contentH = labelHeight - headerH - footerH;
+
+    // QR in der Mitte vertikal zentriert
+    const qrPad = 5;
+    const qrDrawSize = Math.min(contentH - qrPad * 2, qrSize);
+    const qrX = x + qrPad;
+    const qrY = y + headerH + (contentH - qrDrawSize) / 2;
+
+    // ── Äußerer Rahmen mit abgerundeten Ecken ──────────────────────
     doc.save();
-    doc.rect(x, y, labelWidth, labelHeight).lineWidth(0.5).strokeColor('#d1d5db').stroke();
+    doc.roundedRect(x, y, labelWidth, labelHeight, radius)
+      .lineWidth(0.6).strokeColor('#9333ea').stroke();
     doc.restore();
 
-    doc.image(qrImage, qrX, qrY, { width: qrSize, height: qrSize });
+    // ── Header (Lila) mit Inventarnummer ──────────────────────────
+    doc.save();
+    // Clipping auf obere abgerundete Ecken
+    doc.roundedRect(x, y, labelWidth, labelHeight, radius).clip();
+    doc.rect(x, y, labelWidth, headerH).fillColor('#7c3aed').fill();
+    doc.restore();
 
-    // Bezeichnung (Name) — oben, fett, mehrzeilig, kein Abschneiden
+    // Inventarnummer im Header — zentriert, weiß, auffällig
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#ffffff');
+    doc.text(escapePdfText(qrValue), x + 6, y + (headerH - 13) / 2, {
+      width: labelWidth - 12,
+      height: headerH,
+      align: 'center',
+      lineBreak: false,
+      ellipsis: true
+    });
+
+    // ── Footer (Hellgrau) mit Lagerplatz ──────────────────────────
+    doc.save();
+    doc.roundedRect(x, y, labelWidth, labelHeight, radius).clip();
+    doc.rect(x, y + headerH + contentH, labelWidth, footerH).fillColor('#f3f4f6').fill();
+    doc.restore();
+
+    // Trennlinie oben Footer
+    doc.save();
+    doc.moveTo(x, y + headerH + contentH)
+      .lineTo(x + labelWidth, y + headerH + contentH)
+      .lineWidth(0.4).strokeColor('#d1d5db').stroke();
+    doc.restore();
+
+    doc.font('Helvetica').fontSize(10).fillColor('#374151');
+    doc.text(`📍 Lager: ${escapePdfText(lagerplatzValue)}`,
+      x + 8, y + headerH + contentH + (footerH - 10) / 2, {
+        width: labelWidth - 16,
+        height: footerH,
+        lineBreak: false,
+        ellipsis: true
+      });
+
+    // ── QR-Code ────────────────────────────────────────────────────
+    doc.image(qrImage, qrX, qrY, { width: qrDrawSize, height: qrDrawSize });
+
+    // Trennlinie rechts vom QR
+    const dividerX = qrX + qrDrawSize + 5;
+    doc.save();
+    doc.moveTo(dividerX, y + headerH + 4)
+      .lineTo(dividerX, y + headerH + contentH - 4)
+      .lineWidth(0.4).strokeColor('#e5e7eb').stroke();
+    doc.restore();
+
+    // ── Bezeichnung rechts vom QR ──────────────────────────────────
+    const nameX = dividerX + 6;
+    const nameW = x + labelWidth - nameX - 5;
+    const nameY = y + headerH + qrPad;
+    const nameH = contentH - qrPad * 2;
+
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#111827');
-    doc.text(escapePdfText(tool.name || 'Werkzeug'), x + textX, line1Y, {
-      width: textWidth,
-      height: nameMaxHeight,
+    doc.text(escapePdfText(tool.name || 'Werkzeug'), nameX, nameY, {
+      width: nameW,
+      height: nameH,
       lineBreak: true
-    });
-
-    // Inventarnummer — knapp über dem Lagerplatz, gut lesbar
-    doc.font('Helvetica-Bold').fontSize(13).fillColor('#111827');
-    doc.text(escapePdfText(qrValue), x + textX, line2Y, {
-      width: textWidth,
-      height: inventoryHeight,
-      ellipsis: true,
-      lineBreak: false
-    });
-
-    // Lagerplatz — unten
-    doc.font('Helvetica').fontSize(9).fillColor('#374151');
-    doc.text(`Lager: ${escapePdfText(lagerplatzValue)}`, x + textX, line3Y, {
-      width: textWidth,
-      height: locationHeight,
-      ellipsis: true,
-      lineBreak: false
     });
   }
 
