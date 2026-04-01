@@ -641,6 +641,9 @@ function renderMeineAusleihen(ausleihen, mitarbeiterName) {
                 ${a.ausgeliehen_am ? `<div><strong style="color:#ffffff;">Ausgegeben am:</strong> ${escapeHtml(formatDate(a.ausgeliehen_am))}</div>` : ''}
             </div>
             ${extraHint}
+            <div style="margin-top:12px;text-align:right;">
+                <button class="btn-secondary" style="font-size:0.85em;padding:6px 14px;" onclick="showAusleihenHistorie(${Number(a.werkzeug_id)}, ${JSON.stringify(a.werkzeug_name)})">📋 History</button>
+            </div>
         `;
         list.appendChild(card);
     });
@@ -1191,6 +1194,37 @@ async function submitWartung(event) {
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
+    }
+}
+
+async function showAusleihenHistorie(id, name) {
+    document.getElementById('ausleihHistoryTitle').textContent = `Ausleihen-Historie – ${name}`;
+    const list = document.getElementById('ausleihHistoryList');
+    list.innerHTML = '<li>Lade…</li>';
+    document.getElementById('ausleihHistoryModal').classList.add('active');
+
+    try {
+        const items = await apiCall(`/werkzeuge/${id}/ausleihen-historie?limit=3`);
+        if (!items.length) {
+            list.innerHTML = '<li style="color:#6b7280;">Noch keine Ausleihen für dieses Werkzeug vorhanden.</li>';
+            return;
+        }
+
+        list.innerHTML = items.map(item => {
+            const von = formatDate(item.datum_von);
+            const bis = formatDate(item.datum_bis);
+            const rueckgabe = item.zurueckgegeben_am ? `<div style="font-size:0.85em;color:#6b7280;">Zurückgegeben: ${escapeHtml(formatDate(item.zurueckgegeben_am))}</div>` : '';
+            return `
+                <li style="border-left:3px solid #7c3aed;padding-left:12px;">
+                    <div style="font-weight:600;">${escapeHtml(item.mitarbeiter_name)}</div>
+                    <div style="font-size:0.9em;color:#374151;">${escapeHtml(von)} – ${escapeHtml(bis)}</div>
+                    ${rueckgabe}
+                    <div style="margin-top:4px;">${getAusleiheStatusBadge(item.status)}</div>
+                </li>
+            `;
+        }).join('');
+    } catch (err) {
+        list.innerHTML = `<li style="color:#ef4444;">Fehler: ${escapeHtml(err.message)}</li>`;
     }
 }
 

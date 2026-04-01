@@ -1806,6 +1806,24 @@ app.get('/api/werkzeuge/:id/wartungen', validateIdParam, async (req, res) => {
   }
 });
 
+app.get('/api/werkzeuge/:id/ausleihen-historie', validateIdParam, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 3, 20);
+    const result = await pool.query(`
+      SELECT a.id, a.mitarbeiter_name, a.datum_von, a.datum_bis, a.status, a.ausgeliehen_am, a.zurueckgegeben_am
+      FROM ausleihen a
+      WHERE a.werkzeug_id = $1
+      ORDER BY COALESCE(a.zurueckgegeben_am, a.ausgeliehen_am, a.datum_von) DESC, a.id DESC
+      LIMIT $2
+    `, [id, limit]);
+
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/werkzeuge/:id/wartungen', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   const client = await pool.connect();
 
