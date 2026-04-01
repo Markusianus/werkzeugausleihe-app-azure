@@ -1638,6 +1638,173 @@ function buildCalendarCell(tool, dateStr) {
     return `<td class="${classes.join(' ')} is-free" title="${escapeHtml(tooltipParts.join(' | '))}"></td>`;
 }
 
+// ==================== Buchungskalender Mitarbeiter ====================
+
+let maKalenderState = {
+    startDate: toIsoDate(new Date()),
+    days: 28,
+};
+let maKalenderLoaded = false;
+let maKalenderData = null; // raw API data for client-side filtering
+
+function toggleMaKalender() {
+    const body = document.getElementById('maKalenderBody');
+    const icon = document.getElementById('maKalenderToggleIcon');
+    const summary = document.getElementById('maKalenderSummary');
+
+    if (!body) return;
+
+    const isCollapsed = body.classList.contains('kalender-body-collapsed');
+
+    if (isCollapsed) {
+        body.classList.remove('kalender-body-collapsed');
+        if (icon) { icon.classList.add('open'); }
+        body.previousElementSibling?.setAttribute('aria-expanded', 'true');
+        if (!maKalenderLoaded) {
+            maKalenderLoaded = true;
+            loadMaKalender();
+        }
+    } else {
+        body.classList.add('kalender-body-collapsed');
+        if (icon) { icon.classList.remove('open'); }
+        body.previousElementSibling?.setAttribute('aria-expanded', 'false');
+        if (summary) summary.textContent = 'Klicken zum Öffnen';
+    }
+}
+
+function shiftMaKalender(days) {
+    maKalenderState.startDate = addDaysToIso(maKalenderState.startDate, days);
+    const input = document.getElementById('maKalenderStart');
+    if (input) input.value = maKalenderState.startDate;
+    loadMaKalender();
+}
+
+function resetMaKalenderHeute() {
+    maKalenderState.startDate = toIsoDate(new Date());
+    const input = document.getElementById('maKalenderStart');
+    if (input) input.value = maKalenderState.startDate;
+    loadMaKalender();
+}
+
+async function loadMaKalender() {
+    const startInput = document.getElementById('maKalenderStart');
+    const container = document.getElementById('maKalenderContainer');
+    const summary = document.getElementById('maKalenderSummary');
+
+    if (!container || !summary) return;
+
+    maKalenderState.startDate = startInput?.value || maKalenderState.startDate || toIsoDate(new Date());
+
+    container.innerHTML = '<div class="loading">Kalender wird geladen…</div>';
+    summary.textContent = 'Lade 4-Wochen-Ansicht…';
+
+    try {
+        const params = new URLSearchParams({
+            from: maKalenderState.startDate,
+            days: String(maKalenderState.days)
+        });
+
+        const data = await apiCall(`/ausleihen/kalender?${params.toString()}`);
+        maKalenderData = data;
+        renderMaKalenderFiltered();
+    } catch (err) {
+        container.innerHTML = `<div class="error">Kalender konnte nicht geladen werden: ${escapeHtml(err.message)}</div>`;
+        summary.textContent = 'Kalender nicht verfügbar';
+    }
+}
+
+function renderMaKalenderFiltered() {
+    if (!maKalenderData) return;
+
+    const searchInput = document.getElementById('maKalenderSuche');
+    const query = (searchInput?.value || '').toLowerCase().trim();
+
+    const filteredData = {
+        ...maKalenderData,
+        tools: query
+            ? (maKalenderData.tools || []).filter(t =>
+                t.name?.toLowerCase().includes(query) ||
+                t.inventarnummer?.toLowerCase().includes(query) ||
+                t.kategorie?.toLowerCase().includes(query)
+              )
+            : (maKalenderData.tools || [])
+    };
+
+    renderMaKalender(filteredData);
+}
+
+function renderMaKalender(data) {
+    const container = document.getElementById('maKalenderContainer');
+    const summary = document.getElementById('maKalenderSummary');
+    if (!container || !summary) return;
+
+    const tools = data.tools || [];
+    const headers = data.date_headers || [];
+    const totalBookings = tools.reduce((sum, tool) => sum + (tool.bookings?.length || 0), 0);
+
+    const searchInput = document.getElementById('maKalenderSuche');
+    const hasFilter = (searchInput?.value || '').trim().length > 0;
+
+    summary.textContent = hasFilter
+        ? `${tools.length} Werkzeug${tools.length === 1 ? '' : 'e'} gefunden · ${headers.length} Tage · ${totalBookings} aktive Buchung${totalBookings === 1 ? '' : 'en'}`
+        : `${tools.length} Werkzeuge · ${headers.length} Tage · ${totalBookings} aktive Buchung${totalBookings === 1 ? '' : 'en'}`;
+
+    if (!tools.length) {
+        container.innerHTML = hasFilter
+            ? '<div class="empty-state"><div class="empty-state-icon">🔍</div><p>Kein Werkzeug gefunden. Suchbegriff anpassen oder leeren.</p></div>'
+            : '<div class="empty-state"><div class="empty-state-icon">📅</div><p>Keine Werkzeuge vorhanden.</p></div>';
+        return;
+    }
+
+    const headerCells = headers.map(dateStr => {
+        const date = new Date(`${dateStr}T00:00:00`);
+        const weekday = date.toLocaleDateString('de-DE', { weekday: 'short' });
+        const day = date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+        const weekendClass = [0, 6].includes(date.getDay()) ? ' weekend' : '';
+        return `<th class="kalender-date${weekendClass}"><span>${escapeHtml(weekday)}</span><small>${escapeHtml(day)}</small></th>`;
+    }).join('');
+
+    const rows = tools.map(tool => {
+        const cells = headers.map(dateStr => buildCalendarCell(tool, dateStr)).join('');
+        const bookingInfo = tool.bookings?.length
+            ? `<div class="kalender-tool-subline">${tool.bookings.length} aktive Buchung${tool.bookings.length === 1 ? '' : 'en'}</div>`
+            : '<div class="kalender-tool-subline">Keine Buchung im Zeitraum</div>';
+
+        return `
+            <tr>
+                <td class="kalender-tool-cell">
+                    <div class="kalender-tool-name">${escapeHtml(tool.icon || '🔧')} ${escapeHtml(tool.name)}</div>
+                    <div class="kalender-tool-meta">${escapeHtml(tool.inventarnummer || '-')} ${tool.kategorie ? `· ${escapeHtml(tool.kategorie)}` : ''}</div>
+                    ${bookingInfo}
+                </td>
+                ${cells}
+            </tr>
+        `;
+    }).join('');
+
+    container.innerHTML = `
+        <div class="kalender-legend">
+            <span class="legend-item"><span class="legend-color frei"></span> Frei</span>
+            <span class="legend-item"><span class="legend-color reserviert"></span> Reserviert</span>
+            <span class="legend-item"><span class="legend-color ausgeliehen"></span> Ausgeliehen</span>
+            <span class="legend-item"><span class="legend-color heute"></span> Heute</span>
+        </div>
+        <div class="kalender-wrapper">
+            <table class="kalender-table">
+                <thead>
+                    <tr>
+                        <th>Werkzeug / Zeitraum</th>
+                        ${headerCells}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
 // ==================== Schäden (Admin) ====================
 
 async function loadSchaeden() {

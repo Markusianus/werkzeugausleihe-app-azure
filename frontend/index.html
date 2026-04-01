@@ -957,6 +957,29 @@
                     <div id="meineAusleihenEmpty" style="color:#6b7280; padding: 8px 0 12px 0;">Name eingeben, um aktive eigene Ausleihen zu sehen.</div>
                     <div id="meineAusleihenList" class="dashboard" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));"></div>
                 </section>
+
+                <section class="section">
+                    <div class="kalender-card">
+                        <div class="kalender-header kalender-header-toggle" onclick="toggleMaKalender()" role="button" aria-expanded="false" aria-controls="maKalenderBody" style="cursor:pointer;">
+                            <div>
+                                <h3>Buchungskalender</h3>
+                                <p class="kalender-summary" id="maKalenderSummary">Klicken zum Öffnen</p>
+                            </div>
+                            <div class="kalender-toggle-btn" id="maKalenderToggleIcon" aria-hidden="true">▶</div>
+                        </div>
+                        <div id="maKalenderBody" class="kalender-body kalender-body-collapsed">
+                            <div class="kalender-controls-bar">
+                                <input type="date" id="maKalenderStart">
+                                <input type="text" id="maKalenderSuche" placeholder="🔍 Werkzeug suchen…" oninput="renderMaKalenderFiltered()" style="flex:1;min-width:160px;max-width:260px;">
+                                <button class="btn-secondary btn-small" onclick="shiftMaKalender(-7)">← 1 Woche</button>
+                                <button class="btn-secondary btn-small" onclick="resetMaKalenderHeute()">Heute</button>
+                                <button class="btn-secondary btn-small" onclick="shiftMaKalender(7)">1 Woche →</button>
+                                <button class="btn-primary btn-small" onclick="loadMaKalender()">Aktualisieren</button>
+                            </div>
+                            <div id="maKalenderContainer"></div>
+                        </div>
+                    </div>
+                </section>
             </div>
 
             <div id="adminMode" class="hidden">
