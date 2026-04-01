@@ -267,7 +267,8 @@ function getInventorySummaryHtml(w, { compact = false } = {}) {
 }
 
 function buildWerkzeugDetailHtml(w) {
-    const isVerfuegbar = Number(w.verfuegbare_einheiten ?? 0) > 0;
+    const isZeitraumGefiltert = Boolean(verfuegbarkeitsFilter.von && verfuegbarkeitsFilter.bis);
+    const isVerfuegbar = isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0;
     return `
         ${w.foto ? `<img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
         <div class="werkzeug-icon" style="margin-bottom:12px;">${escapeHtml(w.icon || '🔧')}</div>
@@ -369,10 +370,10 @@ async function loadWerkzeuge(filter = {}) {
             const card = document.createElement('div');
             card.className = 'werkzeug-card';
 
-            const isVerfuegbar = Number(w.verfuegbare_einheiten ?? 0) > 0;
+            const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
+            const isVerfuegbar = isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0;
             const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
             const maintenanceBadge = getWartungsStatusBadge(w);
-            const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
             const verfuegbarkeitsBadge = isZeitraumGefiltert
                 ? '<span class="status-badge status-verfuegbar">🗓️ Zeitraum passt</span>'
                 : '';
