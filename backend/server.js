@@ -853,9 +853,13 @@ async function createToolLabelPdfBuffer(req, tools) {
     const qrImage = Buffer.from(qrDataUrl.split(',')[1], 'base64');
     const qrX = x + innerPadding;
     const qrY = y + (labelHeight - qrSize) / 2;
-    const line1Y = y + innerPadding;
-    const line2Y = y + 12;
-    const line3Y = y + labelHeight - innerPadding - locationHeight;
+    // Layout: Bezeichnung oben → Inventarnummer Mitte → Lagerplatz unten
+    const nameLineHeight = 14;       // 11pt font + leading
+    const nameLinesMax = 2;
+    const nameBlockHeight = nameLineHeight * nameLinesMax;
+    const line1Y = y + innerPadding;                                // Bezeichnung oben
+    const line2Y = line1Y + nameBlockHeight + 4;                    // Inventarnummer nach Bezeichnung
+    const line3Y = y + labelHeight - innerPadding - locationHeight; // Lagerplatz ganz unten
     const lagerplatzValue = tool.lagerplatz || tool.lagerort || tool.standort || 'Nicht angegeben';
 
     doc.save();
@@ -864,24 +868,26 @@ async function createToolLabelPdfBuffer(req, tools) {
 
     doc.image(qrImage, qrX, qrY, { width: qrSize, height: qrSize });
 
+    // Bezeichnung (Name) — oben, fett, bis zu 2 Zeilen
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#111827');
     doc.text(escapePdfText(tool.name || 'Werkzeug'), x + textX, line1Y, {
       width: textWidth,
-      height: nameHeight,
+      height: nameBlockHeight,
       ellipsis: true,
       lineBreak: true
     });
 
-    doc.font('Helvetica-Bold').fontSize(16).fillColor('#111827');
+    // Inventarnummer — mittig, gut lesbar
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#111827');
     doc.text(escapePdfText(qrValue), x + textX, line2Y, {
       width: textWidth,
       height: inventoryHeight,
-      align: 'center',
       ellipsis: true,
       lineBreak: false
     });
 
-    doc.font('Helvetica').fontSize(10).fillColor('#374151');
+    // Lagerplatz — unten, klein
+    doc.font('Helvetica').fontSize(9).fillColor('#374151');
     doc.text(`Lager: ${escapePdfText(lagerplatzValue)}`, x + textX, line3Y, {
       width: textWidth,
       height: locationHeight,
