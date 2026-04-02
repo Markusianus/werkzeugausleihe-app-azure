@@ -786,6 +786,14 @@ function pdfTruncate(doc, text, maxWidth) {
 function enrichToolRow(row) {
   const inventory = normalizeInventoryCounts(row);
   const wartungsstatus = calculateMaintenanceStatus(row.naechste_wartung_am);
+
+  // Werkzeuge mit gesperrtem Status (defekt, reparatur, reinigung) gelten als nicht verfügbar,
+  // unabhängig von der Stückzahl-Berechnung (relevant bei Einzelstück-Logik).
+  const GESPERRTE_STATI = new Set(['defekt', 'reparatur', 'reinigung']);
+  if (GESPERRTE_STATI.has(row.status)) {
+    inventory.verfuegbare_einheiten = 0;
+  }
+
   const derivedStatus = inventory.verfuegbare_einheiten > 0
     ? 'verfuegbar'
     : (inventory.aktiv_ausgeliehen > 0 ? 'ausgeliehen' : (inventory.aktiv_reserviert > 0 ? 'reserviert' : row.status));
@@ -2245,6 +2253,18 @@ app.patch('/api/ausleihen/:id/rueckgabe', requireAdmin, adminActionLimiter, vali
       'UPDATE werkzeuge SET status = $1, zustand = $2 WHERE id = $3',
       [neuerStatus, rueckgabe_zustand, result.rows[0].werkzeug_id]
     );
+
+    // Bei Rückgabe mit "defekt" oder "reparatur" automatisch Schaden-Eintrag anlegen
+    if (rueckgabe_zustand === 'defekt' || rueckgabe_zustand === 'reparatur') {
+      const zustandLabel = rueckgabe_zustand === 'defekt' ? 'Defekt' : 'Reparatur nötig';
+      const beschreibung = rueckgabe_kommentar
+        ? `Bei Rückgabe gemeldet: ${zustandLabel}. Kommentar: ${rueckgabe_kommentar}`
+        : `Bei Rückgabe gemeldet: ${zustandLabel}.`;
+      await client.query(
+        'INSERT INTO schaeden (werkzeug_id, mitarbeiter_name, beschreibung) VALUES ($1, $2, $3)',
+        [result.rows[0].werkzeug_id, current.rows[0].mitarbeiter_name || null, beschreibung]
+      );
+    }
 
     if (neuerStatus === 'verfuegbar') {
       await refreshToolStatus(client, result.rows[0].werkzeug_id);
