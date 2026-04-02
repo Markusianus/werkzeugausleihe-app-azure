@@ -272,9 +272,10 @@ function getInventorySummaryHtml(w, { compact = false } = {}) {
 
 function buildWerkzeugDetailHtml(w) {
     const isZeitraumGefiltert = Boolean(verfuegbarkeitsFilter.von && verfuegbarkeitsFilter.bis);
-    const isVerfuegbar = isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0;
+    const isGesperrt = ['defekt', 'reparatur', 'reinigung'].includes(w.status);
+    const isVerfuegbar = !isGesperrt && (isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0);
     return `
-        ${(w.foto || w.has_foto) ? `<img src="${apiBase()}/werkzeuge/${w.id}/foto" alt="${escapeHtml(w.name)}" loading="lazy" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
+        ${(w.foto || w.has_foto) ? `<img src="${buildApiUrl('/werkzeuge/' + w.id + '/foto')}" alt="${escapeHtml(w.name)}" loading="lazy" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
         <div class="werkzeug-icon" style="margin-bottom:12px;">${escapeHtml(w.icon || '🔧')}</div>
         <h3>${escapeHtml(w.name)}</h3>
         <p>${escapeHtml(w.beschreibung || '')}</p>
@@ -375,14 +376,15 @@ async function loadWerkzeuge(filter = {}) {
             card.className = 'werkzeug-card';
 
             const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
-            const isVerfuegbar = isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0;
+            const isGesperrt = ['defekt', 'reparatur', 'reinigung'].includes(w.status);
+            const isVerfuegbar = !isGesperrt && (isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0);
             const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
             const maintenanceBadge = getWartungsStatusBadge(w);
             const verfuegbarkeitsBadge = isZeitraumGefiltert
                 ? '<span class="status-badge status-verfuegbar">🗓️ Zeitraum passt</span>'
                 : '';
             const visual = (w.foto || w.has_foto)
-                ? `<div class="werkzeug-card-visual"><img src="${apiBase()}/werkzeuge/${w.id}/foto" alt="${escapeHtml(w.name)}" loading="lazy"></div>`
+                ? `<div class="werkzeug-card-visual"><img src="${buildApiUrl('/werkzeuge/' + w.id + '/foto')}" alt="${escapeHtml(w.name)}" loading="lazy"></div>`
                 : `<div class="werkzeug-card-visual">${escapeHtml(w.icon || '🔧')}</div>`;
             const metaLine = [
                 w.inventarnummer ? `📦 ${escapeHtml(w.inventarnummer)}` : null,
@@ -997,7 +999,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
             const checked = selectedToolIdsForPdf.has(Number(w.id)) ? 'checked' : '';
             row.innerHTML = `
                 <td class="checkbox-cell"><input type="checkbox" data-tool-select="true" value="${Number(w.id)}" ${checked} onchange="toggleToolSelectionForPdf(${Number(w.id)}, this.checked)"></td>
-                <td>${(w.foto || w.has_foto) ? `<img src="${apiBase()}/werkzeuge/${w.id}/foto" alt="${escapeHtml(w.name)}" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px;display:block;cursor:zoom-in;" onclick="showFotoZoom('${apiBase()}/werkzeuge/${w.id}/foto','${escapeForSingleQuotedJs(w.name)}')">` : escapeHtml(w.icon || '🔧')}</td>
+                <td>${(w.foto || w.has_foto) ? `<img src="${buildApiUrl('/werkzeuge/' + w.id + '/foto')}" alt="${escapeHtml(w.name)}" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px;display:block;cursor:zoom-in;" onclick="showFotoZoom('${buildApiUrl('/werkzeuge/' + w.id + '/foto')}','${escapeForSingleQuotedJs(w.name)}')">` : escapeHtml(w.icon || '🔧')}</td>
                 <td>${escapeHtml(w.name)}</td>
                 <td>${escapeHtml(w.inventarnummer)}</td>
                 <td>${escapeHtml(w.kategorie || '-')}</td>
