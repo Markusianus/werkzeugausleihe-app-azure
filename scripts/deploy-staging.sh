@@ -1,6 +1,84 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# GitHub sync guard
+# Ensures the local repo is clean and in sync with origin before deploying.
+# Prevents deploying stale or unpushed state to staging.
+# ---------------------------------------------------------------------------
+check_github_sync() {
+  local repo_dir
+  repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+  if ! git -C "$repo_dir" rev-parse --is-inside-work-tree &>/dev/null; then
+    echo "WARNING: Not a git repository — skipping GitHub sync check." >&2
+    return
+  fi
+
+  echo "== Checking GitHub sync state =="
+
+  # 1. Uncommitted changes?
+  if ! git -C "$repo_dir" diff --quiet || ! git -C "$repo_dir" diff --cached --quiet; then
+    echo "ERROR: You have uncommitted changes. Commit or stash them before deploying." >&2
+    git -C "$repo_dir" status --short >&2
+    exit 1
+  fi
+
+  # 2. Untracked files?
+  local untracked
+  untracked="$(git -C "$repo_dir" ls-files --others --exclude-standard)"
+  if [[ -n "$untracked" ]]; then
+    echo "WARNING: Untracked files detected (not blocking, but consider committing):" >&2
+    echo "$untracked" >&2
+  fi
+
+  # 3. Fetch latest remote state (non-destructive)
+  local current_branch
+  current_branch="$(git -C "$repo_dir" rev-parse --abbrev-ref HEAD)"
+  git -C "$repo_dir" fetch origin "$current_branch" --quiet 2>&1 || {
+    echo "WARNING: Could not fetch from origin — skipping remote sync check." >&2
+    return
+  }
+
+  local local_sha remote_sha
+  local_sha="$(git -C "$repo_dir" rev-parse HEAD)"
+  remote_sha="$(git -C "$repo_dir" rev-parse "origin/$current_branch" 2>/dev/null || echo '')"
+
+  if [[ -z "$remote_sha" ]]; then
+    echo "WARNING: Branch '$current_branch' has no upstream on origin — skipping remote check." >&2
+    return
+  fi
+
+  # 4. Local is behind remote → must pull first
+  local behind
+  behind="$(git -C "$repo_dir" rev-list --count HEAD..origin/"$current_branch")"
+  if [[ "$behind" -gt 0 ]]; then
+    echo "ERROR: Local branch '$current_branch' is $behind commit(s) behind origin. Pull first." >&2
+    exit 1
+  fi
+
+  # 5. Local has unpushed commits → offer to push or abort
+  local ahead
+  ahead="$(git -C "$repo_dir" rev-list --count origin/"$current_branch"..HEAD)"
+  if [[ "$ahead" -gt 0 ]]; then
+    echo "WARNING: $ahead local commit(s) on '$current_branch' are not yet pushed to GitHub."
+    printf "Push to origin/%s before deploying? [Y/n] " "$current_branch"
+    read -r answer </dev/tty
+    if [[ "${answer,,}" != "n" ]]; then
+      echo "== Pushing $ahead commit(s) to origin/$current_branch =="
+      git -C "$repo_dir" push origin "$current_branch"
+    else
+      echo "WARNING: Deploying without pushing — staging will be ahead of GitHub."
+    fi
+  fi
+
+  echo "== GitHub sync OK (branch: $current_branch, sha: ${local_sha:0:8}) =="
+}
+
+check_github_sync
+
+# ---------------------------------------------------------------------------
+
 usage() {
   cat <<'EOF'
 Usage:
