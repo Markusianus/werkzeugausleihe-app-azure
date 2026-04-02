@@ -1,9 +1,9 @@
-name: Deploy Backend & Frontend to Azure Web Apps
+name: Deploy to Production (Azure)
 
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -17,23 +17,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (Backend)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests (optional)
-        run: npm test
-        continue-on-error: true
-
-      - name: Build (optional)
-        run: |
-          if [ -f package.json ] && npm run | grep -q "build"; then
-            npm run build
-          fi
+        run: npm ci --omit=dev
 
       - name: Deploy to Azure Web App (Backend)
         uses: azure/webapps-deploy@v3
@@ -45,27 +37,10 @@ jobs:
   frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
     needs: backend
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup Node.js (Frontend)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build (optional)
-        run: |
-          if [ -f package.json ] && npm run | grep -q "build"; then
-            npm run build
-          fi
 
       - name: Deploy to Azure Web App (Frontend)
         uses: azure/webapps-deploy@v3
@@ -80,10 +55,11 @@ jobs:
     needs:
       - backend
       - frontend
+    if: always()
     steps:
-      - name: Delete older workflow runs (keep last 3)
+      - name: Delete old workflow runs (keep last 3)
         uses: Mattraks/delete-workflow-runs@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           keep_minimum_runs: 3
-          delete_workflow_pattern: Deploy Backend & Frontend to Azure Web Apps
+          delete_workflow_pattern: 'Deploy to Production (Azure)'
