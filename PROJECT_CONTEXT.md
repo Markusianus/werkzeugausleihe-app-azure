@@ -9,12 +9,14 @@
 ToolHub ist eine Werkzeugverwaltung für ein Unternehmen mit Fokus auf Ausleihe, Rückgabe, Statusverwaltung und administrativer Pflege. Das Projekt läuft aktuell in einer frühen Phase und wird bis auf Weiteres als **Dev-/Staging-Projekt**, nicht als echte Produktion, behandelt.
 
 ## Aktuelle Einordnung
-- Branch-Strategie aktuell historisch gewachsen:
-  - `develop` = Entwicklungsstand
+- Branch-Strategie ab 2026-03-24:
+  - `staged` = kanonischer Staging-Branch; soll immer exakt den Stand spiegeln, der auf die Dev-/Staging-App deployed ist
   - `master` = produktionsnaher Hauptbranch / Übergangszustand
+  - issue-/themenspezifische Arbeitsbranches = Ort für Implementierung
 - Arbeitsentscheidung:
   - **Staging nicht über GitHub Actions deployen**
-  - Staging stattdessen per lokalem Standardskript und Azure Local Git
+  - Deploy-Ziel der Dev-/Staging-App ist der Branch **`staged`**
+  - Änderungen werden auf dedizierten Issue-Branches erarbeitet, nach Abschluss in `staged` gemerged und von dort deployed
   - GitHub Actions bleiben für echte produktive Updates reserviert
 - Die allgemeine projektübergreifende Prozessregel steht in:
   - `/data/.openclaw/workspace/SOFTWARE_PROJECTS.md`

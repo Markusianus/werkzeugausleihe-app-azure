@@ -10,7 +10,8 @@
     "build": "echo \"no build needed\""
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "xlsx": "^0.18.5"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"

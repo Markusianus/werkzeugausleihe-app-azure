@@ -18,6 +18,7 @@ ToolHub besteht aus getrenntem Backend und Frontend.
 
 ## Cloud-/Staging-Prinzipien
 - Staging-Deploys erfolgen per `scripts/deploy-staging.sh`
+- Das Skript lädt standardmäßig `.local/staging.env`; Shell-Variablen bleiben als Override möglich
 - Region-spezifische Azure-Hosts sind als funktionierende Ziel-URLs zu bevorzugen
 - Kurze generische `*.azurewebsites.net`-Namen waren in der Vergangenheit nicht immer zuverlässig
 
@@ -35,6 +36,9 @@ Beispiele für fachliche Marker:
 - Ein technisch erfolgreicher Deploy ist nicht automatisch ein inhaltlich richtiger Staging-Stand
 - Vor jedem Deploy muss der gewünschte Integrationsstand bewusst hergestellt werden
 - Backend kann nach Deploy ggf. einen zusätzlichen Blick auf Health / Neustart brauchen
+- Bei ToolHub ist der Begriff **Admin** fachlich mehrdeutig; in UI-/Fehlertexten soll für App-Berechtigungen möglichst **Tool-Admin** verwendet werden, um Verwechslungen mit System-/Betriebsadmin zu vermeiden
+- Beim Dateiimport sind kopierbare, feldgenaue Fehlermeldungen im Dialog wertvoller als Browser-Alert-Popups
+- Import-Vorabvalidierung sollte möglichst nah an der Server-Validierung liegen, damit Nutzer Fehler früh und verständlich sehen
 
 ## Orchestrierung / längere Läufe
 Wenn mehrere Issues oder delegierte Teilaufgaben koordiniert werden, ist `.local/orchestrator-state.md` der primäre lokale Zustandsanker.

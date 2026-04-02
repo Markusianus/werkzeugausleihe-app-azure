@@ -58,11 +58,57 @@ async function initDatabase() {
         status TEXT DEFAULT 'verfuegbar',
         kategorie TEXT,
         lagerplatz TEXT,
+        bestand_gesamt INTEGER NOT NULL DEFAULT 1,
+        bestand_defekt INTEGER NOT NULL DEFAULT 0,
+        bestand_in_wartung INTEGER NOT NULL DEFAULT 0,
+        einheitenmodell TEXT NOT NULL DEFAULT 'legacy_single',
+        seriennummernpflicht BOOLEAN NOT NULL DEFAULT false,
+        standard_hersteller TEXT,
+        standard_modell TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log('✅ Tabelle "werkzeuge" erstellt');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS werkzeug_einheiten (
+        id SERIAL PRIMARY KEY,
+        werkzeug_id INTEGER NOT NULL,
+        einheiten_code TEXT UNIQUE NOT NULL,
+        inventarnummer TEXT UNIQUE,
+        seriennummer TEXT,
+        bezeichnung TEXT,
+        status TEXT NOT NULL DEFAULT 'verfuegbar',
+        zustand TEXT,
+        lagerplatz TEXT,
+        anschaffungsdatum DATE,
+        hersteller TEXT,
+        modell TEXT,
+        qr_code TEXT,
+        aktiv BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (werkzeug_id) REFERENCES werkzeuge(id) ON DELETE CASCADE
+      );
+    `);
+    console.log('✅ Tabelle "werkzeug_einheiten" erstellt');
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS werkzeug_einheit_historie (
+        id SERIAL PRIMARY KEY,
+        werkzeug_einheit_id INTEGER NOT NULL,
+        event_typ TEXT NOT NULL,
+        event_status TEXT,
+        referenz_typ TEXT,
+        referenz_id INTEGER,
+        notiz TEXT,
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (werkzeug_einheit_id) REFERENCES werkzeug_einheiten(id) ON DELETE CASCADE
+      );
+    `);
+    console.log('✅ Tabelle "werkzeug_einheit_historie" erstellt');
 
     // Ausleihen Tabelle
     await client.query(`
@@ -70,6 +116,8 @@ async function initDatabase() {
         id SERIAL PRIMARY KEY,
         werkzeug_id INTEGER NOT NULL,
         mitarbeiter_name TEXT,
+        mitarbeiter_email TEXT,
+        projektnummer TEXT,
         datum_von DATE,
         datum_bis DATE,
         reserviert_am TIMESTAMP,
@@ -102,6 +150,9 @@ async function initDatabase() {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_werkzeuge_status ON werkzeuge(status);
       CREATE INDEX IF NOT EXISTS idx_werkzeuge_kategorie ON werkzeuge(kategorie);
+      CREATE INDEX IF NOT EXISTS idx_werkzeug_einheiten_werkzeug_id ON werkzeug_einheiten(werkzeug_id);
+      CREATE INDEX IF NOT EXISTS idx_werkzeug_einheiten_status ON werkzeug_einheiten(status);
+      CREATE INDEX IF NOT EXISTS idx_werkzeug_einheit_historie_einheit_id ON werkzeug_einheit_historie(werkzeug_einheit_id);
       CREATE INDEX IF NOT EXISTS idx_ausleihen_werkzeug ON ausleihen(werkzeug_id);
       CREATE INDEX IF NOT EXISTS idx_ausleihen_status ON ausleihen(status);
       CREATE INDEX IF NOT EXISTS idx_schaeden_werkzeug ON schaeden(werkzeug_id);
