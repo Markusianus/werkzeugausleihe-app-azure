@@ -270,7 +270,7 @@ function buildWerkzeugDetailHtml(w) {
     const isZeitraumGefiltert = Boolean(verfuegbarkeitsFilter.von && verfuegbarkeitsFilter.bis);
     const isVerfuegbar = isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0;
     return `
-        ${w.foto ? `<img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
+        ${(w.foto || w.has_foto) ? `<img src="${window.API_URL}/api/werkzeuge/${w.id}/foto" alt="${escapeHtml(w.name)}" loading="lazy" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
         <div class="werkzeug-icon" style="margin-bottom:12px;">${escapeHtml(w.icon || '🔧')}</div>
         <h3>${escapeHtml(w.name)}</h3>
         <p>${escapeHtml(w.beschreibung || '')}</p>
@@ -377,8 +377,8 @@ async function loadWerkzeuge(filter = {}) {
             const verfuegbarkeitsBadge = isZeitraumGefiltert
                 ? '<span class="status-badge status-verfuegbar">🗓️ Zeitraum passt</span>'
                 : '';
-            const visual = w.foto
-                ? `<div class="werkzeug-card-visual"><img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}"></div>`
+            const visual = (w.foto || w.has_foto)
+                ? `<div class="werkzeug-card-visual"><img src="${window.API_URL}/api/werkzeuge/${w.id}/foto" alt="${escapeHtml(w.name)}" loading="lazy"></div>`
                 : `<div class="werkzeug-card-visual">${escapeHtml(w.icon || '🔧')}</div>`;
             const metaLine = [
                 w.inventarnummer ? `📦 ${escapeHtml(w.inventarnummer)}` : null,
@@ -828,8 +828,18 @@ async function loadDashboard() {
             topList.innerHTML = '';
             (stats.top_werkzeuge || []).forEach((w, i) => {
                 const li = document.createElement('li');
-                li.innerHTML = `<span>${i + 1}. ${escapeHtml(w.icon || '🔧')} ${escapeHtml(w.name)}</span> <span class="badge">${escapeHtml(w.anzahl_ausleihen)}x</span>`;
+                li.innerHTML = `<span>${i + 1}. ${escapeHtml(w.icon || '🔧')} ${escapeHtml(w.name)}</span> <span class="badge">${escapeHtml(String(w.anzahl_ausleihen))}x</span>`;
                 topList.appendChild(li);
+            });
+        }
+
+        const flopList = document.getElementById('flopWerkzeugeList');
+        if (flopList) {
+            flopList.innerHTML = '';
+            (stats.flop_werkzeuge || []).forEach((w, i) => {
+                const li = document.createElement('li');
+                li.innerHTML = `<span>${i + 1}. ${escapeHtml(w.icon || '🔧')} ${escapeHtml(w.name)}</span> <span class="badge" style="background:#e5e7eb;color:#6b7280;">${escapeHtml(String(w.anzahl_ausleihen))}x</span>`;
+                flopList.appendChild(li);
             });
         }
 
@@ -983,7 +993,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
             const checked = selectedToolIdsForPdf.has(Number(w.id)) ? 'checked' : '';
             row.innerHTML = `
                 <td class="checkbox-cell"><input type="checkbox" data-tool-select="true" value="${Number(w.id)}" ${checked} onchange="toggleToolSelectionForPdf(${Number(w.id)}, this.checked)"></td>
-                <td>${w.foto ? `<img src="${escapeHtml(w.foto)}" alt="${escapeHtml(w.name)}" style="width:44px;height:44px;object-fit:cover;border-radius:8px;display:block;cursor:zoom-in;" onclick="showFotoZoom('${escapeForSingleQuotedJs(w.foto)}','${escapeForSingleQuotedJs(w.name)}')">` : escapeHtml(w.icon || '🔧')}</td>
+                <td>${(w.foto || w.has_foto) ? `<img src="${window.API_URL}/api/werkzeuge/${w.id}/foto" alt="${escapeHtml(w.name)}" loading="lazy" style="width:44px;height:44px;object-fit:cover;border-radius:8px;display:block;cursor:zoom-in;" onclick="showFotoZoom('${window.API_URL}/api/werkzeuge/${w.id}/foto','${escapeForSingleQuotedJs(w.name)}')">` : escapeHtml(w.icon || '🔧')}</td>
                 <td>${escapeHtml(w.name)}</td>
                 <td>${escapeHtml(w.inventarnummer)}</td>
                 <td>${escapeHtml(w.kategorie || '-')}</td>
@@ -1321,55 +1331,77 @@ function exportSingleToolLabelPdf(toolId) {
 
 // ==================== Ausleihen ====================
 
+let _ausleihenCache = [];
+
 async function loadAusleihen() {
     try {
-        const status = document.getElementById('ausleihenFilter')?.value || '';
-        const endpoint = status ? `/ausleihen?status=${encodeURIComponent(status)}` : '/ausleihen';
-        const ausleihen = await apiCall(endpoint);
-
-        const table = document.getElementById('ausleihenTable');
-        if (!table) return;
-
-        table.innerHTML = `
-            <thead>
-                <tr>
-                    <th>Werkzeug</th>
-                    <th>Mitarbeiter</th>
-                    <th>Projektnummer</th>
-                    <th>Zeitraum</th>
-                    <th>Status</th>
-                    <th>Aktionen</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        `;
-
-        const tbody = table.querySelector('tbody');
-
-        ausleihen.forEach(a => {
-            const row = document.createElement('tr');
-
-            const isUeberfaellig = a.status === 'ausgeliehen' && a.datum_bis && new Date(a.datum_bis) < new Date();
-            const ueberfaelligBadge = isUeberfaellig ? '<span class="badge badge-overdue">⚠️ Überfällig</span>' : '';
-            if (isUeberfaellig) row.classList.add('overdue');
-
-            row.innerHTML = `
-                <td>${escapeHtml(a.werkzeug_name)} (${escapeHtml(a.inventarnummer)})</td>
-                <td>${escapeHtml(a.mitarbeiter_name || '-')}</td>
-                <td>${escapeHtml(a.projektnummer || '-')}</td>
-                <td>${escapeHtml(formatDate(a.datum_von))} - ${escapeHtml(formatDate(a.datum_bis))}</td>
-                <td>${getAusleiheStatusBadge(a.status)} ${ueberfaelligBadge}</td>
-                <td>
-                    ${a.status === 'reserviert' ? `<button class="btn-success btn-small" onclick="ausgebenAusleihe(${a.id})">✓ Ausgeben</button>` : ''}
-                    ${a.status === 'ausgeliehen' ? `<button class="btn-warning btn-small" onclick="showRueckgabe(${a.id})">↩️ Rückgabe</button>` : ''}
-                    <button class="btn-danger btn-small" onclick="deleteAusleihe(${a.id})">🗑️</button>
-                </td>
-            `;
-            tbody.appendChild(row);
-        });
+        const ausleihen = await apiCall('/ausleihen');
+        _ausleihenCache = ausleihen;
+        renderAusleihen();
     } catch (err) {
         console.error('Fehler beim Laden:', err);
     }
+}
+
+function renderAusleihen() {
+    const status = document.getElementById('ausleihenFilter')?.value || '';
+    const search = (document.getElementById('ausleihenSearch')?.value || '').toLowerCase().trim();
+
+    const filtered = _ausleihenCache.filter(a => {
+        const matchesStatus = !status || a.status === status;
+        const matchesSearch = !search ||
+            (a.werkzeug_name || '').toLowerCase().includes(search) ||
+            (a.inventarnummer || '').toLowerCase().includes(search);
+        return matchesStatus && matchesSearch;
+    });
+
+    const table = document.getElementById('ausleihenTable');
+    if (!table) return;
+
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>Werkzeug</th>
+                <th>Mitarbeiter</th>
+                <th>Projektnummer</th>
+                <th>Zeitraum</th>
+                <th>Status</th>
+                <th>Aktionen</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    `;
+
+    const tbody = table.querySelector('tbody');
+
+    if (filtered.length === 0) {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td colspan="6" style="text-align:center;color:#9ca3af;padding:16px;">Keine Einträge gefunden.</td>`;
+        tbody.appendChild(row);
+        return;
+    }
+
+    filtered.forEach(a => {
+        const row = document.createElement('tr');
+
+        const isUeberfaellig = a.status === 'ausgeliehen' && a.datum_bis && new Date(a.datum_bis) < new Date();
+        const ueberfaelligBadge = isUeberfaellig ? '<span class="badge badge-overdue">⚠️ Überfällig</span>' : '';
+        if (isUeberfaellig) row.classList.add('overdue');
+
+        row.innerHTML = `
+            <td>${escapeHtml(a.werkzeug_name)} (${escapeHtml(a.inventarnummer)})</td>
+            <td>${escapeHtml(a.mitarbeiter_name || '-')}</td>
+            <td>${escapeHtml(a.projektnummer || '-')}</td>
+            <td>${escapeHtml(formatDate(a.datum_von))} - ${escapeHtml(formatDate(a.datum_bis))}</td>
+            <td>${getAusleiheStatusBadge(a.status)} ${ueberfaelligBadge}</td>
+            <td>
+                ${a.status === 'reserviert' ? `<button class="btn-success btn-small" onclick="ausgebenAusleihe(${a.id})">✓ Ausgeben</button>` : ''}
+                ${a.status === 'ausgeliehen' ? `<button class="btn-warning btn-small" onclick="showRueckgabe(${a.id})">↩️ Rückgabe</button>` : ''}
+                <button class="btn-danger btn-small" onclick="deleteAusleihe(${a.id})">🗑️</button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
 }
 
 function getAusleiheStatusBadge(status) {
@@ -1914,6 +1946,22 @@ const REQUIRED_IMPORT_HEADERS = [
     'Lagerplatz'
 ];
 
+async function exportJahresauswertungPdf() {
+    try {
+        const response = await fetch(buildApiUrl('/export/ausleihen/jahresauswertung'));
+        if (!response.ok) throw new Error('Export fehlgeschlagen');
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'jahresauswertung-ausleihen.pdf';
+        a.click();
+        window.URL.revokeObjectURL(url);
+    } catch (err) {
+        alert('Fehler beim PDF-Export: ' + err.message);
+    }
+}
+
 async function exportCSV() {
     try {
         const response = await fetch(buildApiUrl('/export/werkzeuge'));
@@ -2382,7 +2430,11 @@ function resetVerfuegbarkeitsFilter() {
 }
 
 function filterAusleihen() {
-    loadAusleihen();
+    if (_ausleihenCache.length > 0) {
+        renderAusleihen();
+    } else {
+        loadAusleihen();
+    }
 }
 
 // ==================== Init ====================

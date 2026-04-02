@@ -58,6 +58,8 @@
             background: linear-gradient(180deg, rgba(216, 180, 254, 0.3), rgba(167, 139, 250, 0.08));
             clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
             filter: drop-shadow(0 10px 24px rgba(0,0,0,0.22));
+            pointer-events: none;
+            z-index: 0;
         }
 
         .brand-mark {
@@ -84,7 +86,7 @@
         }
 
         .header h1 { font-size: 1.8em; }
-        .mode-toggle { display: flex; gap: 10px; }
+        .mode-toggle { display: flex; gap: 10px; position: relative; z-index: 1; }
 
         button {
             padding: 8px 16px;
@@ -995,20 +997,27 @@
                         <div class="dashboard-card"><h3 id="statAusleihenAusgeliehen">-</h3><p>Ausleihen aktiv</p></div>
                         <div class="dashboard-card alert"><h3 id="statAusleihenUeberfaellig">-</h3><p>Überfällige Ausleihen</p></div>
                         <div class="dashboard-card alert"><h3 id="statSchaeden">-</h3><p>Offene Schäden</p></div>
-                        <div class="dashboard-card"><h3 id="statWartungIntervall">-</h3><p>Werkzeuge mit Wartungsintervall</p></div>
-                        <div class="dashboard-card alert"><h3 id="statWartungFaellig">-</h3><p>Wartung überfällig</p></div>
-                        <div class="dashboard-card"><h3 id="statWartungHeute">-</h3><p>Wartung heute</p></div>
-                        <div class="dashboard-card"><h3 id="statWartung7Tage">-</h3><p>Wartung in 7 Tagen</p></div>
+                        <div class="dashboard-card" style="display:none"><h3 id="statWartungIntervall">-</h3><p>Werkzeuge mit Wartungsintervall</p></div>
+                        <div class="dashboard-card alert" style="display:none"><h3 id="statWartungFaellig">-</h3><p>Wartung überfällig</p></div>
+                        <div class="dashboard-card" style="display:none"><h3 id="statWartungHeute">-</h3><p>Wartung heute</p></div>
+                        <div class="dashboard-card" style="display:none"><h3 id="statWartung7Tage">-</h3><p>Wartung in 7 Tagen</p></div>
                     </div>
-                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:start;">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;align-items:start;margin-bottom:16px;">
                         <div>
-                            <h3>Top Werkzeuge</h3>
+                            <h3>🏆 Top Werkzeuge</h3>
                             <ul id="topWerkzeugeList"></ul>
                         </div>
                         <div>
-                            <h3>Fällige Wartungen</h3>
+                            <h3>💤 Flop Werkzeuge</h3>
+                            <ul id="flopWerkzeugeList"></ul>
+                        </div>
+                        <div>
+                            <h3>🔧 Fällige Wartungen</h3>
                             <ul id="faelligeWartungenList"></ul>
                         </div>
+                    </div>
+                    <div>
+                        <button class="btn-secondary" onclick="exportJahresauswertungPdf()">📄 Jahresauswertung PDF (letzte 12 Monate)</button>
                     </div>
                 </section>
 
@@ -1076,8 +1085,9 @@
                         <div id="ausleihenBody" class="section-collapsible section-collapsed">
                             <div class="admin-section-body">
                                 <div class="filter-bar">
+                                    <input type="text" id="ausleihenSearch" placeholder="🔍 Nach Werkzeug suchen…" oninput="filterAusleihen()" style="padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:0.95em;min-width:200px;">
                                     <select id="ausleihenFilter" onchange="filterAusleihen()">
-                                        <option value="">Alle</option>
+                                        <option value="">Alle Status</option>
                                         <option value="reserviert">Reserviert</option>
                                         <option value="ausgeliehen">Ausgeliehen</option>
                                         <option value="zurueckgegeben">Zurückgegeben</option>
@@ -1195,9 +1205,43 @@
                         </select>
                     </div>
                     <div class="form-group"><label for="werkzeugZustand">Zustand</label><input type="text" id="werkzeugZustand"></div>
-                    <div class="form-group"><label for="werkzeugKategorie">Kategorie</label><input type="text" id="werkzeugKategorie"></div>
+                    <div class="form-group"><label for="werkzeugKategorie">Kategorie</label>
+                        <select id="werkzeugKategorie">
+                            <option value="">— bitte wählen —</option>
+                            <option value="Akku-Werkzeug">Akku-Werkzeug</option>
+                            <option value="Beleuchtung">Beleuchtung</option>
+                            <option value="Bohrmaschine">Bohrmaschine</option>
+                            <option value="Computer / Drucker">Computer / Drucker</option>
+                            <option value="Drehmomentschlüssel">Drehmomentschlüssel</option>
+                            <option value="Endoskop / Kamera">Endoskop / Kamera</option>
+                            <option value="Erste Hilfe">Erste Hilfe</option>
+                            <option value="Feuerlöscher">Feuerlöscher</option>
+                            <option value="Funkgerät">Funkgerät</option>
+                            <option value="Gaswarnung">Gaswarnung</option>
+                            <option value="Glasfaser">Glasfaser</option>
+                            <option value="Heizung">Heizung</option>
+                            <option value="Heißluftfön / Heißklebepistole">Heißluftfön / Heißklebepistole</option>
+                            <option value="Hubwagen / Hebehilfe">Hubwagen / Hebehilfe</option>
+                            <option value="Hydraulik">Hydraulik</option>
+                            <option value="Kabel / Verlängerungsleitung">Kabel / Verlängerungsleitung</option>
+                            <option value="Ladegerät">Ladegerät</option>
+                            <option value="Leiter">Leiter</option>
+                            <option value="Löten">Löten</option>
+                            <option value="Messgerät">Messgerät</option>
+                            <option value="PSA / Schutzausrüstung">PSA / Schutzausrüstung</option>
+                            <option value="Schleifgerät">Schleifgerät</option>
+                            <option value="Schneidgerät / Säge">Schneidgerät / Säge</option>
+                            <option value="Stanze">Stanze</option>
+                            <option value="Staubsauger / Absaugung">Staubsauger / Absaugung</option>
+                            <option value="Steckdosenleiste / Stromverteiler">Steckdosenleiste / Stromverteiler</option>
+                            <option value="Trafo / Trenntransformator">Trafo / Trenntransformator</option>
+                            <option value="Werkzeugkoffer">Werkzeugkoffer</option>
+                            <option value="Zange">Zange</option>
+                            <option value="Zubehör">Zubehör</option>
+                        </select>
+                    </div>
                     <div class="form-group"><label for="werkzeugLagerplatz">Lagerplatz</label><input type="text" id="werkzeugLagerplatz"></div>
-                    <div class="form-row">
+                    <div class="form-row" style="display:none">
                         <div class="form-group"><label for="werkzeugBestandGesamt">Gesamtbestand</label><input type="number" min="1" id="werkzeugBestandGesamt" value="1"></div>
                         <div class="form-group"><label for="werkzeugBestandDefekt">Davon defekt</label><input type="number" min="0" id="werkzeugBestandDefekt" value="0"></div>
                         <div class="form-group"><label for="werkzeugBestandInWartung">Davon in Wartung</label><input type="number" min="0" id="werkzeugBestandInWartung" value="0"></div>

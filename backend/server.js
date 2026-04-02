@@ -773,6 +773,16 @@ function normalizeInventoryCounts(row) {
   };
 }
 
+function pdfTruncate(doc, text, maxWidth) {
+  const str = String(text || '');
+  if (doc.widthOfString(str) <= maxWidth) return str;
+  let truncated = str;
+  while (truncated.length > 0 && doc.widthOfString(truncated + '…') > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  return truncated + '…';
+}
+
 function enrichToolRow(row) {
   const inventory = normalizeInventoryCounts(row);
   const wartungsstatus = calculateMaintenanceStatus(row.naechste_wartung_am);
@@ -1390,7 +1400,10 @@ app.get('/api/werkzeuge', async (req, res) => {
 
     let query = `
       SELECT
-        w.*,
+        w.id, w.name, w.icon, w.beschreibung, w.inventarnummer, w.status, w.kategorie,
+        w.lagerplatz, w.zustand, w.bestand_gesamt, w.bestand_defekt, w.bestand_in_wartung,
+        w.wartungsintervall_tage, w.letzte_wartung_am, w.naechste_wartung_am, w.wartung_notiz,
+        (w.foto IS NOT NULL AND w.foto != '') AS has_foto,
         COUNT(*) FILTER (WHERE a.status = 'reserviert')::int AS aktiv_reserviert,
         COUNT(*) FILTER (WHERE a.status = 'ausgeliehen')::int AS aktiv_ausgeliehen
       FROM werkzeuge w
@@ -1460,6 +1473,26 @@ app.get('/api/werkzeuge/:id', validateIdParam, async (req, res) => {
     }
 
     res.json(enrichToolRow(result.rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/werkzeuge/:id/foto', validateIdParam, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('SELECT foto FROM werkzeuge WHERE id = $1', [id]);
+    if (result.rows.length === 0 || !result.rows[0].foto) {
+      return res.status(404).json({ error: 'Kein Foto vorhanden' });
+    }
+    const base64 = result.rows[0].foto;
+    const match = base64.match(/^data:([a-zA-Z0-9+/]+\/[a-zA-Z0-9+/]+);base64,(.+)$/);
+    if (!match) return res.status(400).json({ error: 'Ungültiges Fotoformat' });
+    const mimeType = match[1];
+    const buffer = Buffer.from(match[2], 'base64');
+    res.set('Content-Type', mimeType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.send(buffer);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2497,6 +2530,15 @@ app.get('/api/stats', async (req, res) => {
       LIMIT 5
     `);
 
+    const flopWerkzeuge = await pool.query(`
+      SELECT w.name, w.icon, COUNT(a.id) as anzahl_ausleihen
+      FROM werkzeuge w
+      LEFT JOIN ausleihen a ON w.id = a.werkzeug_id
+      GROUP BY w.id, w.name, w.icon
+      ORDER BY anzahl_ausleihen ASC, w.name ASC
+      LIMIT 5
+    `);
+
     const dueMaintenance = await pool.query(`
       SELECT id, name, icon, inventarnummer, naechste_wartung_am, wartungsintervall_tage, status
       FROM werkzeuge
@@ -2516,6 +2558,7 @@ app.get('/api/stats', async (req, res) => {
       schaeden: schadenStats.rows[0],
       wartungen: wartungStats.rows[0],
       top_werkzeuge: topWerkzeuge.rows,
+      flop_werkzeuge: flopWerkzeuge.rows,
       faellige_wartungen: dueMaintenance.rows.map(row => ({
         ...row,
         wartungsstatus: calculateMaintenanceStatus(row.naechste_wartung_am)
@@ -2527,6 +2570,113 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // ==================== CSV EXPORT ====================
+
+app.get('/api/export/ausleihen/jahresauswertung', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        w.name,
+        w.inventarnummer,
+        w.kategorie,
+        COUNT(a.id)::int AS anzahl_ausleihen,
+        SUM(COALESCE(a.datum_bis::date - a.datum_von::date + 1, 1))::int AS gesamttage,
+        MAX(a.datum_von) AS letzte_ausleihe
+      FROM werkzeuge w
+      LEFT JOIN ausleihen a ON a.werkzeug_id = w.id
+        AND a.datum_von >= CURRENT_DATE - INTERVAL '12 months'
+        AND a.status IN ('ausgeliehen', 'zurueckgegeben')
+      GROUP BY w.id, w.name, w.inventarnummer, w.kategorie
+      ORDER BY anzahl_ausleihen DESC, w.name ASC
+    `);
+
+    const rows = result.rows;
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+    const chunks = [];
+    doc.on('data', c => chunks.push(c));
+    doc.on('end', () => {
+      const buf = Buffer.concat(chunks);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'attachment; filename="jahresauswertung-ausleihen.pdf"');
+      res.setHeader('Content-Length', buf.length);
+      res.send(buf);
+    });
+
+    const now = new Date();
+    const vonDate = new Date(now);
+    vonDate.setFullYear(vonDate.getFullYear() - 1);
+    const fmt = d => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+    // Header
+    doc.rect(0, 0, doc.page.width, 70).fill('#7c3aed');
+    doc.fillColor('white').fontSize(20).font('Helvetica-Bold')
+       .text('ToolHub – Jahresauswertung Ausleihen', 40, 22);
+    doc.fontSize(10).font('Helvetica')
+       .text(`Zeitraum: ${fmt(vonDate)} – ${fmt(now)}`, 40, 48);
+    doc.fillColor('black').moveDown(2);
+
+    // Summary
+    const totalAusleihen = rows.reduce((s, r) => s + r.anzahl_ausleihen, 0);
+    const genutzt = rows.filter(r => r.anzahl_ausleihen > 0).length;
+    doc.y = 85;
+    doc.fontSize(10).font('Helvetica')
+       .fillColor('#4b5563')
+       .text(`Werkzeuge gesamt: ${rows.length}   |   Werkzeuge genutzt: ${genutzt}   |   Ausleihen gesamt: ${totalAusleihen}`, 40);
+    doc.moveDown(1);
+
+    // Table header
+    const colX = [40, 200, 290, 380, 450];
+    const colW = [155, 85, 85, 65, 75];
+    const headers = ['Werkzeug', 'Inventar-Nr.', 'Kategorie', 'Ausleihen', 'Gesamttage'];
+    const tableTop = doc.y;
+
+    doc.rect(40, tableTop, doc.page.width - 80, 20).fill('#ede9fe');
+    doc.fillColor('#4c1d95').fontSize(9).font('Helvetica-Bold');
+    headers.forEach((h, i) => {
+      doc.text(h, colX[i] + 4, tableTop + 5, { width: colW[i], lineBreak: false, ellipsis: true });
+      doc.y = tableTop + 5;
+    });
+    doc.y = tableTop + 22;
+
+    // Rows
+    rows.forEach((r, idx) => {
+      if (doc.y > doc.page.height - 60) {
+        doc.addPage();
+        const pageBreakHeaderY = doc.y;
+        doc.rect(40, pageBreakHeaderY, doc.page.width - 80, 20).fill('#ede9fe');
+        doc.fillColor('#4c1d95').fontSize(9).font('Helvetica-Bold');
+        headers.forEach((h, i) => {
+          doc.text(h, colX[i] + 4, pageBreakHeaderY + 5, { width: colW[i], lineBreak: false, ellipsis: true });
+          doc.y = pageBreakHeaderY + 5;
+        });
+        doc.y = pageBreakHeaderY + 22;
+      }
+      const rowY = doc.y;
+      const bg = idx % 2 === 0 ? '#faf5ff' : 'white';
+      doc.rect(40, rowY, doc.page.width - 80, 18).fill(bg);
+      doc.fillColor(r.anzahl_ausleihen === 0 ? '#9ca3af' : '#111827').fontSize(9).font('Helvetica');
+      const cells = [
+        r.name || '-',
+        r.inventarnummer || '-',
+        r.kategorie || '-',
+        String(r.anzahl_ausleihen),
+        r.anzahl_ausleihen > 0 ? String(r.gesamttage) : '-'
+      ];
+      cells.forEach((c, i) => {
+        doc.text(pdfTruncate(doc, c, colW[i] - 8), colX[i] + 4, rowY + 4, { lineBreak: false });
+        doc.y = rowY + 4;
+      });
+      doc.y = rowY + 18;
+    });
+
+    // Footer
+    doc.fontSize(8).fillColor('#9ca3af')
+       .text(`Erstellt am ${fmt(now)} · ToolHub`, 40, doc.page.height - 30, { align: 'center' });
+
+    doc.end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/export/werkzeuge/pdf-labels', async (req, res) => {
   try {
