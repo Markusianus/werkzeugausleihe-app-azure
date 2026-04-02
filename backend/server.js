@@ -786,6 +786,14 @@ function pdfTruncate(doc, text, maxWidth) {
 function enrichToolRow(row) {
   const inventory = normalizeInventoryCounts(row);
   const wartungsstatus = calculateMaintenanceStatus(row.naechste_wartung_am);
+
+  // Werkzeuge mit gesperrtem Status (defekt, reparatur, reinigung) gelten als nicht verfügbar,
+  // unabhängig von der Stückzahl-Berechnung (relevant bei Einzelstück-Logik).
+  const GESPERRTE_STATI = new Set(['defekt', 'reparatur', 'reinigung']);
+  if (GESPERRTE_STATI.has(row.status)) {
+    inventory.verfuegbare_einheiten = 0;
+  }
+
   const derivedStatus = inventory.verfuegbare_einheiten > 0
     ? 'verfuegbar'
     : (inventory.aktiv_ausgeliehen > 0 ? 'ausgeliehen' : (inventory.aktiv_reserviert > 0 ? 'reserviert' : row.status));

@@ -272,7 +272,8 @@ function getInventorySummaryHtml(w, { compact = false } = {}) {
 
 function buildWerkzeugDetailHtml(w) {
     const isZeitraumGefiltert = Boolean(verfuegbarkeitsFilter.von && verfuegbarkeitsFilter.bis);
-    const isVerfuegbar = isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0;
+    const isGesperrt = ['defekt', 'reparatur', 'reinigung'].includes(w.status);
+    const isVerfuegbar = !isGesperrt && (isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0);
     return `
         ${(w.foto || w.has_foto) ? `<img src="${apiBase()}/werkzeuge/${w.id}/foto" alt="${escapeHtml(w.name)}" loading="lazy" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
         <div class="werkzeug-icon" style="margin-bottom:12px;">${escapeHtml(w.icon || '🔧')}</div>
@@ -375,7 +376,8 @@ async function loadWerkzeuge(filter = {}) {
             card.className = 'werkzeug-card';
 
             const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
-            const isVerfuegbar = isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0;
+            const isGesperrt = ['defekt', 'reparatur', 'reinigung'].includes(w.status);
+            const isVerfuegbar = !isGesperrt && (isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0);
             const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
             const maintenanceBadge = getWartungsStatusBadge(w);
             const verfuegbarkeitsBadge = isZeitraumGefiltert
