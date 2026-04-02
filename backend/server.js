@@ -2246,6 +2246,18 @@ app.patch('/api/ausleihen/:id/rueckgabe', requireAdmin, adminActionLimiter, vali
       [neuerStatus, rueckgabe_zustand, result.rows[0].werkzeug_id]
     );
 
+    // Bei Rückgabe mit "defekt" oder "reparatur" automatisch Schaden-Eintrag anlegen
+    if (rueckgabe_zustand === 'defekt' || rueckgabe_zustand === 'reparatur') {
+      const zustandLabel = rueckgabe_zustand === 'defekt' ? 'Defekt' : 'Reparatur nötig';
+      const beschreibung = rueckgabe_kommentar
+        ? `Bei Rückgabe gemeldet: ${zustandLabel}. Kommentar: ${rueckgabe_kommentar}`
+        : `Bei Rückgabe gemeldet: ${zustandLabel}.`;
+      await client.query(
+        'INSERT INTO schaeden (werkzeug_id, mitarbeiter_name, beschreibung) VALUES ($1, $2, $3)',
+        [result.rows[0].werkzeug_id, current.rows[0].mitarbeiter_name || null, beschreibung]
+      );
+    }
+
     if (neuerStatus === 'verfuegbar') {
       await refreshToolStatus(client, result.rows[0].werkzeug_id);
     }
