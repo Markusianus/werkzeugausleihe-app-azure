@@ -2427,14 +2427,34 @@ app.patch('/api/schaeden/:id/beheben', requireAdmin, adminActionLimiter, validat
       throw new Error('Schaden nicht gefunden oder bereits behoben');
     }
 
-    await refreshToolStatus(client, result.rows[0].werkzeug_id);
+    const werkzeugId = result.rows[0].werkzeug_id;
+
+    // Prüfen ob noch weitere offene Schäden vorhanden sind
+    const openDamages = await client.query(
+      `SELECT COUNT(*) AS count FROM schaeden WHERE werkzeug_id = $1 AND status = 'offen'`,
+      [werkzeugId]
+    );
+    const hasOpenDamages = parseInt(openDamages.rows[0].count, 10) > 0;
+
+    // Aktive Buchung prüfen
+    const activeBooking = await client.query(
+      `SELECT status FROM ausleihen WHERE werkzeug_id = $1 AND status IN ('reserviert','ausgeliehen') LIMIT 1`,
+      [werkzeugId]
+    );
+
+    if (!hasOpenDamages && activeBooking.rows.length === 0) {
+      // Kein offener Schaden mehr, keine Buchung → Werkzeug freigeben
+      await client.query(`UPDATE werkzeuge SET status = 'verfuegbar' WHERE id = $1`, [werkzeugId]);
+    } else {
+      await refreshToolStatus(client, werkzeugId);
+    }
 
     await client.query('COMMIT');
 
     await logAdminAudit({
       req,
       action: 'damage.resolve',
-      metadata: { damageId: Number(id), toolId: result.rows[0].werkzeug_id }
+      metadata: { damageId: Number(id), toolId: werkzeugId }
     });
 
     res.json(result.rows[0]);
