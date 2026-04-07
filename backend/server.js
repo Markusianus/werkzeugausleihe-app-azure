@@ -2776,6 +2776,31 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Interner Serverfehler' });
 });
 
+async function fixStuckRepairStatus() {
+  // Werkzeuge die auf reparatur/defekt feststecken obwohl kein offener Schaden existiert
+  // und keine aktive Buchung vorliegt → auf verfuegbar zurücksetzen
+  try {
+    const result = await pool.query(`
+      UPDATE werkzeuge
+      SET status = 'verfuegbar'
+      WHERE status IN ('reparatur', 'defekt')
+        AND id NOT IN (
+          SELECT DISTINCT werkzeug_id FROM schaeden WHERE status = 'offen'
+        )
+        AND id NOT IN (
+          SELECT DISTINCT werkzeug_id FROM ausleihen WHERE status IN ('reserviert', 'ausgeliehen')
+        )
+      RETURNING id, inventarnummer, name
+    `);
+    if (result.rows.length > 0) {
+      console.log(`🔧 Status-Fix: ${result.rows.length} Werkzeug(e) auf verfügbar zurückgesetzt:`,
+        result.rows.map(r => `${r.name} (${r.inventarnummer})`).join(', '));
+    }
+  } catch (err) {
+    console.error('⚠️ Status-Fix fehlgeschlagen:', err.message);
+  }
+}
+
 Promise.all([ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchema()])
   .then(async () => {
     try {
@@ -2784,6 +2809,8 @@ Promise.all([ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchem
     } catch (err) {
       console.error('⚠️ Inventory-Schema-Initialisierung fehlgeschlagen, Backend startet trotzdem weiter:', err);
     }
+
+    await fixStuckRepairStatus();
 
     app.listen(PORT, () => {
       console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
