@@ -359,8 +359,9 @@ async function loadWerkzeuge(filter = {}) {
         if (filter.bis) params.set('verfuegbar_bis', filter.bis);
 
         const endpoint = `/werkzeuge?${params.toString()}`;
-        const werkzeuge = await apiCall(endpoint);
         const container = document.getElementById('werkzeugeList');
+        container.innerHTML = '<div class="loading">⏳ Werkzeuge werden geladen…</div>';
+        const werkzeuge = await apiCall(endpoint);
         container.innerHTML = '';
 
         updateKategorieFilter(werkzeuge);

@@ -2427,14 +2427,34 @@ app.patch('/api/schaeden/:id/beheben', requireAdmin, adminActionLimiter, validat
       throw new Error('Schaden nicht gefunden oder bereits behoben');
     }
 
-    await refreshToolStatus(client, result.rows[0].werkzeug_id);
+    const werkzeugId = result.rows[0].werkzeug_id;
+
+    // Prüfen ob noch weitere offene Schäden vorhanden sind
+    const openDamages = await client.query(
+      `SELECT COUNT(*) AS count FROM schaeden WHERE werkzeug_id = $1 AND status = 'offen'`,
+      [werkzeugId]
+    );
+    const hasOpenDamages = parseInt(openDamages.rows[0].count, 10) > 0;
+
+    // Aktive Buchung prüfen
+    const activeBooking = await client.query(
+      `SELECT status FROM ausleihen WHERE werkzeug_id = $1 AND status IN ('reserviert','ausgeliehen') LIMIT 1`,
+      [werkzeugId]
+    );
+
+    if (!hasOpenDamages && activeBooking.rows.length === 0) {
+      // Kein offener Schaden mehr, keine Buchung → Werkzeug freigeben
+      await client.query(`UPDATE werkzeuge SET status = 'verfuegbar' WHERE id = $1`, [werkzeugId]);
+    } else {
+      await refreshToolStatus(client, werkzeugId);
+    }
 
     await client.query('COMMIT');
 
     await logAdminAudit({
       req,
       action: 'damage.resolve',
-      metadata: { damageId: Number(id), toolId: result.rows[0].werkzeug_id }
+      metadata: { damageId: Number(id), toolId: werkzeugId }
     });
 
     res.json(result.rows[0]);
@@ -2756,6 +2776,31 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Interner Serverfehler' });
 });
 
+async function fixStuckRepairStatus() {
+  // Werkzeuge die auf reparatur/defekt feststecken obwohl kein offener Schaden existiert
+  // und keine aktive Buchung vorliegt → auf verfuegbar zurücksetzen
+  try {
+    const result = await pool.query(`
+      UPDATE werkzeuge
+      SET status = 'verfuegbar'
+      WHERE status IN ('reparatur', 'defekt')
+        AND id NOT IN (
+          SELECT DISTINCT werkzeug_id FROM schaeden WHERE status = 'offen'
+        )
+        AND id NOT IN (
+          SELECT DISTINCT werkzeug_id FROM ausleihen WHERE status IN ('reserviert', 'ausgeliehen')
+        )
+      RETURNING id, inventarnummer, name
+    `);
+    if (result.rows.length > 0) {
+      console.log(`🔧 Status-Fix: ${result.rows.length} Werkzeug(e) auf verfügbar zurückgesetzt:`,
+        result.rows.map(r => `${r.name} (${r.inventarnummer})`).join(', '));
+    }
+  } catch (err) {
+    console.error('⚠️ Status-Fix fehlgeschlagen:', err.message);
+  }
+}
+
 Promise.all([ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchema()])
   .then(async () => {
     try {
@@ -2764,6 +2809,8 @@ Promise.all([ensureMaintenanceSchema(), ensureEmailSchema(), ensureAuditLogSchem
     } catch (err) {
       console.error('⚠️ Inventory-Schema-Initialisierung fehlgeschlagen, Backend startet trotzdem weiter:', err);
     }
+
+    await fixStuckRepairStatus();
 
     app.listen(PORT, () => {
       console.log(`🚀 ToolHub Backend läuft auf Port ${PORT}`);
