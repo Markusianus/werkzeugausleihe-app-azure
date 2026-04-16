@@ -537,6 +537,26 @@ function getNotificationSettings() {
   };
 }
 
+async function sendTeamsNotification(payload) {
+  const webhookUrl = process.env.TEAMS_AUSLEIHEN_WEBHOOK_URL;
+  if (!webhookUrl) return { skipped: true, reason: 'webhook_not_configured' };
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      console.error(`Teams Webhook fehlgeschlagen: ${response.status}`);
+      return { skipped: false, error: `HTTP ${response.status}` };
+    }
+    return { sent: true };
+  } catch (err) {
+    console.error('Teams Webhook Fehler:', err.message);
+    return { skipped: false, error: err.message };
+  }
+}
+
 async function sendBestEffortEmail(messageFactory, contextLabel) {
   if (!mailNotificationsEnabled()) {
     return { skipped: true, reason: 'mail_not_configured' };
@@ -2138,6 +2158,27 @@ app.post('/api/ausleihen', async (req, res) => {
         })
       }), `reservation_confirmation:${contact.email}`);
     }
+
+    // Teams-Benachrichtigung bei neuer Reservierung
+    const werkzeugNamen = reservierungen.map(r => r.werkzeug_name || `Werkzeug #${r.werkzeug_id}`).join(', ');
+    const vonFormatted = new Date(datum_von).toLocaleDateString('de-DE');
+    const bisFormatted = new Date(datum_bis).toLocaleDateString('de-DE');
+    await sendTeamsNotification({
+      '@type': 'MessageCard',
+      '@context': 'https://schema.org/extensions',
+      themeColor: '7C3AED',
+      summary: 'Neue Ausleihe angefragt',
+      sections: [{
+        activityTitle: '📦 Neue Ausleihe angefragt',
+        activitySubtitle: `von ${mitarbeiter_name}`,
+        facts: [
+          { name: 'Werkzeug', value: werkzeugNamen },
+          { name: 'Projektnummer', value: projektnummer || '–' },
+          { name: 'Zeitraum', value: `${vonFormatted} – ${bisFormatted}` },
+          { name: 'Mitarbeiter', value: mitarbeiter_name }
+        ]
+      }]
+    });
 
     res.status(201).json(reservierungen);
   } catch (err) {
