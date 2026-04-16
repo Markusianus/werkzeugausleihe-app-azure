@@ -860,6 +860,7 @@ async function loadDashboard() {
         loadAdminWerkzeuge(werkzeuge);
         loadAusleihen();
         loadSchaeden();
+        loadEntsorgung();
         // Kalender startet eingeklappt – wird erst bei Öffnen geladen (toggleKalender)
         loadWartungen(wartungen);
     } catch (err) {
@@ -1876,10 +1877,11 @@ async function loadSchaeden() {
                 <td>${escapeHtml(s.mitarbeiter_name || '-')}</td>
                 <td>${escapeHtml(s.beschreibung)}</td>
                 <td>${escapeHtml(formatDate(s.gemeldet_am))}</td>
-                <td>${s.status === 'offen' ? '<span class="badge badge-defekt">Offen</span>' : '<span class="badge badge-available">Behoben</span>'}</td>
+                <td>${s.status === 'offen' ? '<span class="badge badge-defekt">Offen</span>' : s.status === 'nicht_behebbar' ? '<span class="badge badge-defekt">Nicht behebbar</span>' : '<span class="badge badge-available">Behoben</span>'}</td>
                 <td>
                     ${s.foto ? `<button class="btn-primary btn-small" onclick="showSchadenFoto('${escapeForSingleQuotedJs(s.foto)}')">📷</button>` : ''}
                     ${s.status === 'offen' ? `<button class="btn-success btn-small" onclick="behebenSchaden(${s.id})">✓ Behoben</button>` : ''}
+                    ${s.status === 'offen' ? `<button class="btn-danger btn-small" onclick="nichtBehebbarSchaden(${s.id})">⚠ Nicht behebbar</button>` : ''}
                     <button class="btn-danger btn-small" onclick="deleteSchaden(${s.id})">🗑️</button>
                 </td>
             `;
@@ -1928,6 +1930,72 @@ async function deleteSchaden(id) {
         loadSchaeden();
     } catch (err) {
         alert('Fehler: ' + err.message);
+    }
+}
+
+async function nichtBehebbarSchaden(id) {
+    if (!confirm('Schaden als nicht behebbar markieren? Das Werkzeug wird in den Bereich "Entsorgung" verschoben.')) return;
+
+    try {
+        await apiCall(`/schaeden/${id}/nicht-behebbar`, {
+            method: 'PATCH'
+        });
+        showToast('⚠ Werkzeug zur Entsorgung vorgemerkt!');
+        loadSchaeden();
+        loadEntsorgung();
+        loadDashboard();
+    } catch (err) {
+        alert('Fehler: ' + err.message);
+    }
+}
+
+// ==================== Entsorgung ====================
+
+async function loadEntsorgung() {
+    try {
+        const items = await apiCall('/entsorgung');
+
+        const table = document.getElementById('entsorgungTable');
+        if (!table) return;
+
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Werkzeug</th>
+                    <th>Inventarnummer</th>
+                    <th>Letzter Ausleiher</th>
+                    <th>Letzte Ausleihe</th>
+                    <th>Schadensbeschreibung</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        `;
+
+        const tbody = table.querySelector('tbody');
+
+        if (items.length === 0) {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td colspan="5" style="text-align:center;color:#6b7280;">Keine Werkzeuge zur Entsorgung vorgemerkt.</td>`;
+            tbody.appendChild(row);
+            return;
+        }
+
+        items.forEach(item => {
+            const row = document.createElement('tr');
+            const letzteAusleihe = item.letzte_ausleihe_von
+                ? `${escapeHtml(formatDate(item.letzte_ausleihe_von))} – ${escapeHtml(formatDate(item.letzte_ausleihe_bis))}`
+                : '–';
+            row.innerHTML = `
+                <td>${escapeHtml(item.icon || '🔧')} ${escapeHtml(item.name)}</td>
+                <td>${escapeHtml(item.inventarnummer || '–')}</td>
+                <td>${escapeHtml(item.letzter_ausleiher || '–')}</td>
+                <td>${letzteAusleihe}</td>
+                <td>${escapeHtml(item.schaden_beschreibung || '–')}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    } catch (err) {
+        console.error('Fehler beim Laden der Entsorgungsliste:', err);
     }
 }
 

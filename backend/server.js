@@ -24,8 +24,8 @@ const ADMIN_TOKEN_SECRET = String(process.env.ADMIN_TOKEN_SECRET || ADMIN_PASSWO
 const ADMIN_TOKEN_TTL_HOURS = Math.max(1, Number.parseInt(process.env.ADMIN_TOKEN_TTL_HOURS || '12', 10) || 12);
 const REQUEST_BODY_LIMIT = String(process.env.REQUEST_BODY_LIMIT || '2mb');
 const TRUST_PROXY = String(process.env.TRUST_PROXY || '1').trim().toLowerCase();
-const ALLOWED_TOOL_STATUSES = new Set(['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur']);
-const ALLOWED_DAMAGE_STATUSES = new Set(['offen', 'behoben']);
+const ALLOWED_TOOL_STATUSES = new Set(['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur', 'entsorgt']);
+const ALLOWED_DAMAGE_STATUSES = new Set(['offen', 'behoben', 'nicht_behebbar']);
 const ALLOWED_BOOKING_STATUSES = new Set(['reserviert', 'ausgeliehen', 'zurueckgegeben']);
 const ALLOWED_RETURN_CONDITIONS = new Set(['gut', 'gebraucht', 'defekt', 'reinigung', 'reparatur']);
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -2466,6 +2466,88 @@ app.patch('/api/schaeden/:id/beheben', requireAdmin, adminActionLimiter, validat
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
+  }
+});
+
+app.patch('/api/schaeden/:id/nicht-behebbar', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    await client.query('BEGIN');
+
+    const result = await client.query(`
+      UPDATE schaeden
+      SET status = 'nicht_behebbar'
+      WHERE id = $1 AND status = 'offen'
+      RETURNING *
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      throw new Error('Schaden nicht gefunden oder nicht offen');
+    }
+
+    const werkzeugId = result.rows[0].werkzeug_id;
+
+    await client.query(`UPDATE werkzeuge SET status = 'entsorgt' WHERE id = $1`, [werkzeugId]);
+
+    await client.query('COMMIT');
+
+    await logAdminAudit({
+      req,
+      action: 'damage.irreparable',
+      metadata: { damageId: Number(id), toolId: werkzeugId }
+    });
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (/nicht gefunden/.test(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ==================== ENTSORGUNG ====================
+
+app.get('/api/entsorgung', requireAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        w.id,
+        w.name,
+        w.inventarnummer,
+        w.icon,
+        w.status,
+        a.mitarbeiter_name AS letzter_ausleiher,
+        a.mitarbeiter_email AS letzter_ausleiher_email,
+        a.datum_von AS letzte_ausleihe_von,
+        a.datum_bis AS letzte_ausleihe_bis,
+        s.beschreibung AS schaden_beschreibung,
+        s.gemeldet_am AS schaden_gemeldet_am
+      FROM werkzeuge w
+      LEFT JOIN LATERAL (
+        SELECT mitarbeiter_name, mitarbeiter_email, datum_von, datum_bis
+        FROM ausleihen
+        WHERE werkzeug_id = w.id
+        ORDER BY COALESCE(datum_bis, datum_von) DESC
+        LIMIT 1
+      ) a ON true
+      LEFT JOIN LATERAL (
+        SELECT beschreibung, gemeldet_am
+        FROM schaeden
+        WHERE werkzeug_id = w.id AND status = 'nicht_behebbar'
+        ORDER BY gemeldet_am DESC
+        LIMIT 1
+      ) s ON true
+      WHERE w.status = 'entsorgt'
+      ORDER BY w.name ASC
+    `);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

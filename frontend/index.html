@@ -1133,6 +1133,23 @@
                         </div>
                     </div>
                 </section>
+
+                <section class="section">
+                    <div class="admin-section-card">
+                        <div class="admin-section-header" onclick="toggleSection('entsorgungBody', 'entsorgungIcon')" role="button" aria-expanded="false" aria-controls="entsorgungBody">
+                            <h3>Entsorgung</h3>
+                            <div class="kalender-toggle-btn" id="entsorgungIcon" aria-hidden="true">▶</div>
+                        </div>
+                        <div id="entsorgungBody" class="section-collapsible section-collapsed">
+                            <div class="admin-section-body">
+                                <div class="filter-bar">
+                                    <button class="btn-secondary" onclick="loadEntsorgung()">Aktualisieren</button>
+                                </div>
+                                <table id="entsorgungTable"></table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
             </div>
         </main>
 
