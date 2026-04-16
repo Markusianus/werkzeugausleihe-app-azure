@@ -1966,6 +1966,7 @@ async function loadEntsorgung() {
                     <th>Letzter Ausleiher</th>
                     <th>Letzte Ausleihe</th>
                     <th>Schadensbeschreibung</th>
+                    <th>Aktion</th>
                 </tr>
             </thead>
             <tbody></tbody>
@@ -1991,11 +1992,25 @@ async function loadEntsorgung() {
                 <td>${escapeHtml(item.letzter_ausleiher || '–')}</td>
                 <td>${letzteAusleihe}</td>
                 <td>${escapeHtml(item.schaden_beschreibung || '–')}</td>
+                <td><button class="btn-success btn-small" onclick="reaktivierenWerkzeug(${item.id})">↩ Wieder verfügbar</button></td>
             `;
             tbody.appendChild(row);
         });
     } catch (err) {
         console.error('Fehler beim Laden der Entsorgungsliste:', err);
+    }
+}
+
+async function reaktivierenWerkzeug(id) {
+    if (!confirm('Werkzeug wieder als verfügbar markieren und aus der Entsorgung entfernen?')) return;
+
+    try {
+        await apiCall(`/entsorgung/${id}/reaktivieren`, { method: 'PATCH' });
+        showToast('✓ Werkzeug wieder verfügbar!');
+        loadEntsorgung();
+        loadDashboard();
+    } catch (err) {
+        alert('Fehler: ' + err.message);
     }
 }
 

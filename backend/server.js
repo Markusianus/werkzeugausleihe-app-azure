@@ -2551,6 +2551,50 @@ app.get('/api/entsorgung', requireAdmin, async (req, res) => {
   }
 });
 
+app.patch('/api/entsorgung/:id/reaktivieren', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    await client.query('BEGIN');
+
+    const toolResult = await client.query(
+      `SELECT id FROM werkzeuge WHERE id = $1 AND status = 'entsorgt'`,
+      [id]
+    );
+    if (toolResult.rows.length === 0) {
+      throw new Error('Werkzeug nicht gefunden oder nicht in Entsorgung');
+    }
+
+    await client.query(
+      `UPDATE schaeden SET status = 'behoben' WHERE werkzeug_id = $1 AND status = 'nicht_behebbar'`,
+      [id]
+    );
+
+    await client.query(
+      `UPDATE werkzeuge SET status = 'verfuegbar' WHERE id = $1`,
+      [id]
+    );
+
+    await client.query('COMMIT');
+
+    await logAdminAudit({
+      req,
+      action: 'tool.reactivate_from_disposal',
+      metadata: { toolId: Number(id) }
+    });
+
+    res.json({ message: 'Werkzeug wieder verfügbar', toolId: Number(id) });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (/nicht gefunden/.test(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
 app.delete('/api/schaeden/:id', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
   try {
     const { id } = req.params;
