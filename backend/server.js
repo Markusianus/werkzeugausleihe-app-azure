@@ -2008,7 +2008,7 @@ app.get('/api/ausleihen', async (req, res) => {
       query += ` WHERE ${conditions.join(' AND ')}`;
     }
 
-    query += " ORDER BY CASE a.status WHEN 'ausgeliehen' THEN 0 WHEN 'reserviert' THEN 1 ELSE 2 END, a.datum_bis ASC NULLS LAST, a.datum_von DESC";
+    query += " ORDER BY CASE a.status WHEN 'reserviert' THEN 0 WHEN 'ausgeliehen' THEN 1 ELSE 2 END, a.datum_bis ASC NULLS LAST, a.datum_von DESC";
 
     const result = await pool.query(query, params);
     res.json(result.rows);
