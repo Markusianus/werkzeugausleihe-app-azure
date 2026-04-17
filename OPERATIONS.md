@@ -16,6 +16,16 @@ ToolHub besteht aus getrenntem Backend und Frontend.
 ### Frontend lokal
 - Frontend lokal starten und API-Anbindung prüfen
 
+## Umgebungsvariablen (Azure App Service)
+
+| Variable | Staging | Prod | Zweck |
+|---|---|---|---|
+| `IS_STAGING_INSTANZ` | `true` | _(nicht gesetzt)_ | Steuert Staging-Banner im Frontend |
+| `TEAMS_AUSLEIHEN_WEBHOOK_URL` | _(gesetzt)_ | _(gesetzt)_ | Teams-Benachrichtigung bei neuer Ausleihe |
+
+Wenn `IS_STAGING_INSTANZ=true`, ruft das Frontend `/api/config` ab und zeigt einen lila Banner oben in der App an: **„DEV — Dies ist die Testumgebung"**.  
+In Produktion ist die Variable nicht gesetzt → Banner bleibt unsichtbar.
+
 ## Cloud-/Staging-Prinzipien
 - Staging-Deploys erfolgen per `scripts/deploy-staging.sh`
 - Das Skript lädt standardmäßig `.local/staging.env`; Shell-Variablen bleiben als Override möglich
