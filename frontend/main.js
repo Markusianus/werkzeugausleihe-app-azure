@@ -656,35 +656,33 @@ function renderMeineAusleihen(ausleihen, mitarbeiterName) {
 
     ausleihen.forEach(a => {
         const card = document.createElement('div');
-        card.className = 'dashboard-card';
-        card.style.textAlign = 'left';
+        card.style.cssText = 'background:linear-gradient(135deg,#7c3aed 0%,#1f2937 100%);color:white;padding:12px 16px;border-radius:10px;';
 
         const isUeberfaellig = a.status === 'ausgeliehen' && a.datum_bis && new Date(a.datum_bis) < new Date();
         const dateRange = `${formatDate(a.datum_von)} – ${formatDate(a.datum_bis)}`;
-        const extraHint = a.status === 'reserviert'
-            ? '<p style="margin-top:8px;font-size:0.9em;color:rgba(255,255,255,0.88);">Noch nicht ausgegeben</p>'
-            : (isUeberfaellig
-                ? '<p style="margin-top:8px;font-size:0.9em;color:#fee2e2;font-weight:600;">⚠️ Rückgabe überfällig</p>'
-                : '<p style="margin-top:8px;font-size:0.9em;color:rgba(255,255,255,0.88);">Aktuell ausgeliehen</p>');
+        const ueberfaelligHint = isUeberfaellig
+            ? '<span style="color:#fca5a5;font-weight:600;font-size:0.8em;">⚠️ Überfällig</span>'
+            : '';
 
         card.innerHTML = `
-            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">
-                <div>
-                    <div style="font-size:1.6em; margin-bottom:8px;">${escapeHtml(a.icon || '🔧')}</div>
-                    <h3 style="font-size:1.2em; margin-bottom:6px; color:#ffffff; line-height:1.3;">${escapeHtml(a.werkzeug_name)}</h3>
-                    <p style="font-size:0.9em; color:rgba(255,255,255,0.78); margin:0;">${escapeHtml(a.inventarnummer || '-')}</p>
+            <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0;">
+                    <span style="font-size:1.3em;flex-shrink:0;">${escapeHtml(a.icon || '🔧')}</span>
+                    <div style="min-width:0;">
+                        <div style="font-weight:600;font-size:0.95em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(a.werkzeug_name)}</div>
+                        ${a.inventarnummer ? `<div style="font-size:0.78em;opacity:0.75;">${escapeHtml(a.inventarnummer)}</div>` : ''}
+                    </div>
                 </div>
-                <div>${getAusleiheStatusBadge(a.status)}</div>
+                <div style="flex-shrink:0;">${getAusleiheStatusBadge(a.status)}</div>
             </div>
-            <div style="margin-top:14px; font-size:0.95em; line-height:1.5; color:#f3f4f6;">
-                <div><strong style="color:#ffffff;">Zeitraum:</strong> ${escapeHtml(dateRange)}</div>
-                ${a.reserviert_am ? `<div><strong style="color:#ffffff;">Reserviert am:</strong> ${escapeHtml(formatDate(a.reserviert_am))}</div>` : ''}
-                ${a.ausgeliehen_am ? `<div><strong style="color:#ffffff;">Ausgegeben am:</strong> ${escapeHtml(formatDate(a.ausgeliehen_am))}</div>` : ''}
+            <div style="margin-top:8px;font-size:0.82em;color:rgba(255,255,255,0.85);display:flex;flex-wrap:wrap;gap:4px 16px;">
+                <span>📅 ${escapeHtml(dateRange)}</span>
+                ${a.ausgeliehen_am ? `<span>Ausgegeben: ${escapeHtml(formatDate(a.ausgeliehen_am))}</span>` : ''}
+                ${ueberfaelligHint}
             </div>
-            ${extraHint}
-            <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
-                <button class="btn-warning" style="font-size:0.85em;padding:6px 14px;" onclick="showSchadenMelden(${Number(a.werkzeug_id)}, '${escapeForSingleQuotedJs(mitarbeiterName)}')">⚠️ Schaden melden</button>
-                <button class="btn-secondary" style="font-size:0.85em;padding:6px 14px;" onclick="showAusleihenHistorie(${Number(a.werkzeug_id)}, ${JSON.stringify(a.werkzeug_name)})">📋 History</button>
+            <div style="margin-top:8px;display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
+                <button class="btn-warning btn-small" onclick="showSchadenMelden(${Number(a.werkzeug_id)}, '${escapeForSingleQuotedJs(mitarbeiterName)}')">⚠️ Schaden melden</button>
+                <button class="btn-secondary btn-small" onclick="showAusleihenHistorie(${Number(a.werkzeug_id)}, ${JSON.stringify(a.werkzeug_name)})">📋 History</button>
             </div>
         `;
         list.appendChild(card);
