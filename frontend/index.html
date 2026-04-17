@@ -927,6 +927,21 @@
         <main class="content">
             <div id="mitarbeiterMode">
                 <section class="section">
+                    <div class="toolbar" style="justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap;">
+                        <div>
+                            <h2>Meine aktiven Ausleihen</h2>
+                            <p style="color:#6b7280;margin-top:6px;">Reservierungen und aktuell ausgeliehene Werkzeuge eines Mitarbeiters.</p>
+                        </div>
+                        <div class="search-bar" style="margin-bottom:0; min-width:min(100%, 420px);">
+                            <input type="text" id="meineAusleihenName" placeholder="Ihr Name" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); loadMeineAusleihen(); }">
+                            <button class="btn-primary" onclick="loadMeineAusleihen()">Anzeigen</button>
+                        </div>
+                    </div>
+                    <div id="meineAusleihenEmpty" style="color:#6b7280; padding: 8px 0 12px 0;">Name eingeben, um aktive eigene Ausleihen zu sehen.</div>
+                    <div id="meineAusleihenList" class="dashboard" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));"></div>
+                </section>
+
+                <section class="section">
                     <h2>Werkzeuge finden</h2>
                     <div class="toolbar" style="align-items:flex-end; gap:16px; flex-wrap:wrap;">
                         <div class="search-bar" style="flex:2 1 320px; min-width:min(100%, 320px);">
@@ -943,21 +958,6 @@
                     </div>
                     <p id="verfuegbarkeitsHinweis" style="color:#6b7280; margin:8px 0 0 0;">Optional Zeitraum wählen, um nur im gesamten Einsatzfenster verfügbare Werkzeuge zu sehen.</p>
                     <div id="werkzeugeList" class="werkzeug-list"></div>
-                </section>
-
-                <section class="section">
-                    <div class="toolbar" style="justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap;">
-                        <div>
-                            <h2>Meine aktiven Ausleihen</h2>
-                            <p style="color:#6b7280;margin-top:6px;">Reservierungen und aktuell ausgeliehene Werkzeuge eines Mitarbeiters.</p>
-                        </div>
-                        <div class="search-bar" style="margin-bottom:0; min-width:min(100%, 420px);">
-                            <input type="text" id="meineAusleihenName" placeholder="Ihr Name" onkeydown="if(event.key === 'Enter'){ event.preventDefault(); loadMeineAusleihen(); }">
-                            <button class="btn-primary" onclick="loadMeineAusleihen()">Anzeigen</button>
-                        </div>
-                    </div>
-                    <div id="meineAusleihenEmpty" style="color:#6b7280; padding: 8px 0 12px 0;">Name eingeben, um aktive eigene Ausleihen zu sehen.</div>
-                    <div id="meineAusleihenList" class="dashboard" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));"></div>
                 </section>
 
                 <section class="section">
