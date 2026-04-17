@@ -1346,6 +1346,12 @@ function handleValidation(result, res) {
 }
 
 // Health Check
+app.get('/api/config', (req, res) => {
+  res.json({
+    isStaging: String(process.env.IS_STAGING_INSTANZ || '').trim().toLowerCase() === 'true'
+  });
+});
+
 app.get('/api/health', async (req, res) => {
   try {
     await pool.query('SELECT NOW()');

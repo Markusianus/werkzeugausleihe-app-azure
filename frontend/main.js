@@ -2548,6 +2548,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initApp();
 
+    // Staging-Banner: /api/config abfragen und ggf. anzeigen
+    fetch(`${window.API_URL}/config`)
+        .then(r => r.json())
+        .then(cfg => {
+            if (cfg.isStaging) {
+                const banner = document.getElementById('staging-banner');
+                if (banner) banner.style.display = 'block';
+            }
+        })
+        .catch(() => { /* Banner bleibt versteckt bei Fehler */ });
+
     const toolId = getInitialToolIdFromUrl();
     if (toolId) {
         showWerkzeugDetail(toolId);
