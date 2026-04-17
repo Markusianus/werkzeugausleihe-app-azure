@@ -683,7 +683,7 @@ function renderMeineAusleihen(ausleihen, mitarbeiterName) {
             </div>
             ${extraHint}
             <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
-                <button class="btn-warning" style="font-size:0.85em;padding:6px 14px;" onclick="showSchadenMelden(${Number(a.werkzeug_id)}, ${JSON.stringify(mitarbeiterName)})">⚠️ Schaden melden</button>
+                <button class="btn-warning" style="font-size:0.85em;padding:6px 14px;" onclick="showSchadenMelden(${Number(a.werkzeug_id)}, '${escapeForSingleQuotedJs(mitarbeiterName)}')">⚠️ Schaden melden</button>
                 <button class="btn-secondary" style="font-size:0.85em;padding:6px 14px;" onclick="showAusleihenHistorie(${Number(a.werkzeug_id)}, ${JSON.stringify(a.werkzeug_name)})">📋 History</button>
             </div>
         `;
@@ -715,9 +715,9 @@ async function loadMeineAusleihen() {
 // ==================== Schaden melden ====================
 
 async function showSchadenMelden(werkzeugId, mitarbeiterName) {
-    document.getElementById('schadenWerkzeugId').value = werkzeugId;
     document.getElementById('schadenForm').reset();
     document.getElementById('schadenFotoPreview').innerHTML = '';
+    document.getElementById('schadenWerkzeugId').value = werkzeugId;
     if (mitarbeiterName) {
         document.getElementById('schadenMitarbeiter').value = mitarbeiterName;
     }
