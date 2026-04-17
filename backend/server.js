@@ -537,6 +537,26 @@ function getNotificationSettings() {
   };
 }
 
+async function sendTeamsNotification(payload) {
+  const webhookUrl = process.env.TEAMS_AUSLEIHEN_WEBHOOK_URL;
+  if (!webhookUrl) return { skipped: true, reason: 'webhook_not_configured' };
+  try {
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      console.error(`Teams Webhook fehlgeschlagen: ${response.status}`);
+      return { skipped: false, error: `HTTP ${response.status}` };
+    }
+    return { sent: true };
+  } catch (err) {
+    console.error('Teams Webhook Fehler:', err.message);
+    return { skipped: false, error: err.message };
+  }
+}
+
 async function sendBestEffortEmail(messageFactory, contextLabel) {
   if (!mailNotificationsEnabled()) {
     return { skipped: true, reason: 'mail_not_configured' };
@@ -2139,6 +2159,27 @@ app.post('/api/ausleihen', async (req, res) => {
       }), `reservation_confirmation:${contact.email}`);
     }
 
+    // Teams-Benachrichtigung bei neuer Reservierung
+    const werkzeugNamen = reservierungen.map(r => r.werkzeug_name || `Werkzeug #${r.werkzeug_id}`).join(', ');
+    const vonFormatted = new Date(datum_von).toLocaleDateString('de-DE');
+    const bisFormatted = new Date(datum_bis).toLocaleDateString('de-DE');
+    await sendTeamsNotification({
+      '@type': 'MessageCard',
+      '@context': 'https://schema.org/extensions',
+      themeColor: '7C3AED',
+      summary: 'Neue Ausleihe angefragt',
+      sections: [{
+        activityTitle: '📦 Neue Ausleihe angefragt',
+        activitySubtitle: `von ${mitarbeiter_name}`,
+        facts: [
+          { name: 'Werkzeug', value: werkzeugNamen },
+          { name: 'Projektnummer', value: projektnummer || '–' },
+          { name: 'Zeitraum', value: `${vonFormatted} – ${bisFormatted}` },
+          { name: 'Mitarbeiter', value: mitarbeiter_name }
+        ]
+      }]
+    });
+
     res.status(201).json(reservierungen);
   } catch (err) {
     await client.query('ROLLBACK');
@@ -2548,6 +2589,50 @@ app.get('/api/entsorgung', requireAdmin, async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch('/api/entsorgung/:id/reaktivieren', requireAdmin, adminActionLimiter, validateIdParam, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    await client.query('BEGIN');
+
+    const toolResult = await client.query(
+      `SELECT id FROM werkzeuge WHERE id = $1 AND status = 'entsorgt'`,
+      [id]
+    );
+    if (toolResult.rows.length === 0) {
+      throw new Error('Werkzeug nicht gefunden oder nicht in Entsorgung');
+    }
+
+    await client.query(
+      `UPDATE schaeden SET status = 'behoben' WHERE werkzeug_id = $1 AND status = 'nicht_behebbar'`,
+      [id]
+    );
+
+    await client.query(
+      `UPDATE werkzeuge SET status = 'verfuegbar' WHERE id = $1`,
+      [id]
+    );
+
+    await client.query('COMMIT');
+
+    await logAdminAudit({
+      req,
+      action: 'tool.reactivate_from_disposal',
+      metadata: { toolId: Number(id) }
+    });
+
+    res.json({ message: 'Werkzeug wieder verfügbar', toolId: Number(id) });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (/nicht gefunden/.test(err.message)) {
+      return res.status(400).json({ error: err.message });
+    }
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
