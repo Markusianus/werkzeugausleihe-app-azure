@@ -2549,7 +2549,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initApp();
 
     // Staging-Banner: /api/config abfragen und ggf. anzeigen
-    fetch(`${window.API_URL}/config`)
+    fetch(`${window.API_URL}/api/config`)
         .then(r => r.json())
         .then(cfg => {
             if (cfg.isStaging) {
