@@ -1371,7 +1371,9 @@ function renderAusleihen() {
     table.innerHTML = `
         <thead>
             <tr>
+                <th>Foto</th>
                 <th>Werkzeug</th>
+                <th>Lagerplatz</th>
                 <th>Mitarbeiter</th>
                 <th>Projektnummer</th>
                 <th>Zeitraum</th>
@@ -1386,7 +1388,7 @@ function renderAusleihen() {
 
     if (filtered.length === 0) {
         const row = document.createElement('tr');
-        row.innerHTML = `<td colspan="6" style="text-align:center;color:#9ca3af;padding:16px;">Keine Einträge gefunden.</td>`;
+        row.innerHTML = `<td colspan="8" style="text-align:center;color:#9ca3af;padding:16px;">Keine Einträge gefunden.</td>`;
         tbody.appendChild(row);
         return;
     }
@@ -1398,8 +1400,14 @@ function renderAusleihen() {
         const ueberfaelligBadge = isUeberfaellig ? '<span class="badge badge-overdue">⚠️ Überfällig</span>' : '';
         if (isUeberfaellig) row.classList.add('overdue');
 
+        const fotoHtml = a.has_foto
+            ? `<img src="${buildApiUrl('/werkzeuge/' + a.werkzeug_id + '/foto')}" alt="Foto" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb;" loading="lazy">`
+            : `<span style="color:#9ca3af;font-size:1.4em;">📷</span>`;
+
         row.innerHTML = `
+            <td style="text-align:center;">${fotoHtml}</td>
             <td>${escapeHtml(a.werkzeug_name)} (${escapeHtml(a.inventarnummer)})</td>
+            <td>${escapeHtml(a.lagerplatz || '-')}</td>
             <td>${escapeHtml(a.mitarbeiter_name || '-')}</td>
             <td>${escapeHtml(a.projektnummer || '-')}</td>
             <td>${escapeHtml(formatDate(a.datum_von))} - ${escapeHtml(formatDate(a.datum_bis))}</td>
@@ -2547,6 +2555,17 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('verfuegbarBis')?.setAttribute('min', today);
 
     initApp();
+
+    // Staging-Banner: /api/config abfragen und ggf. anzeigen
+    fetch(`${window.API_URL}/api/config`)
+        .then(r => r.json())
+        .then(cfg => {
+            if (cfg.isStaging) {
+                const banner = document.getElementById('staging-banner');
+                if (banner) banner.style.display = 'block';
+            }
+        })
+        .catch(() => { /* Banner bleibt versteckt bei Fehler */ });
 
     const toolId = getInitialToolIdFromUrl();
     if (toolId) {
