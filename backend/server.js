@@ -2009,7 +2009,8 @@ app.get('/api/ausleihen', async (req, res) => {
     const activeOnly = normalizeBoolean(req.query.active_only, false);
 
     let query = `
-      SELECT a.*, w.name as werkzeug_name, w.inventarnummer, w.icon
+      SELECT a.*, w.name as werkzeug_name, w.inventarnummer, w.icon, w.lagerplatz,
+             (w.foto IS NOT NULL AND w.foto != '') AS has_foto
       FROM ausleihen a
       JOIN werkzeuge w ON a.werkzeug_id = w.id
     `;
