@@ -1019,13 +1019,10 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                     ${w.wartungsintervall_tage ? `<div style="font-size:0.8em;margin-top:6px;color:#6b7280;">${escapeHtml(w.wartungsintervall_tage)} Tage · zuletzt ${escapeHtml(formatDate(w.letzte_wartung_am))}</div>` : ''}
                 </td>
                 <td>
-                    <button class="btn-primary btn-small" onclick="showQRCode(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${escapeForSingleQuotedJs(w.inventarnummer)}')">QR</button>
-                    <button class="btn-secondary btn-small" onclick="exportSingleToolLabelPdf(${w.id})">PDF</button>
-                    <button class="btn-success btn-small" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">🛠️</button>
-                    <button class="btn-secondary btn-small" onclick="showWartungsverlauf(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">📜</button>
-                    <button class="btn-small ${w.status === 'wartung' ? 'btn-success' : 'btn-warning'}" onclick="toggleWartungStatus(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${w.status}')" title="${w.status === 'wartung' ? 'Wieder verfügbar setzen' : 'In Wartung setzen'}">${w.status === 'wartung' ? '✅' : '🔧'}</button>
-                    <button class="btn-warning btn-small" onclick="editWerkzeug(${w.id})">✏️</button>
-                    <button class="btn-danger btn-small" onclick="deleteWerkzeug(${w.id})">🗑️</button>
+                    <button class="btn-success btn-medium" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">🛠️</button>
+                    <button class="btn-medium ${w.status === 'wartung' ? 'btn-success' : 'btn-warning'}" onclick="toggleWartungStatus(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${w.status}')" title="${w.status === 'wartung' ? 'Wieder verfügbar setzen' : 'In Wartung setzen'}">${w.status === 'wartung' ? '✅' : '🔧'}</button>
+                    <button class="btn-warning btn-medium" onclick="editWerkzeug(${w.id})">✏️</button>
+                    <button class="btn-danger btn-medium" onclick="deleteWerkzeug(${w.id})">🗑️</button>
                 </td>
             `;
             tbody.appendChild(row);
