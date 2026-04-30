@@ -1023,7 +1023,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                     <button class="btn-secondary btn-small" onclick="exportSingleToolLabelPdf(${w.id})">PDF</button>
                     <button class="btn-success btn-small" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">🛠️</button>
                     <button class="btn-secondary btn-small" onclick="showWartungsverlauf(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">📜</button>
-                    <button class="btn-small ${w.status === 'wartung' ? 'btn-success' : 'btn-warning'}" onclick="toggleWartungStatus(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${w.status_abgeleitet || w.status}')" title="${w.status === 'wartung' ? 'Wieder verfügbar setzen' : 'In Wartung setzen'}">${w.status === 'wartung' ? '✅' : '🔧'}</button>
+                    <button class="btn-small ${w.status === 'wartung' ? 'btn-success' : 'btn-warning'}" onclick="toggleWartungStatus(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${w.status}')" title="${w.status === 'wartung' ? 'Wieder verfügbar setzen' : 'In Wartung setzen'}">${w.status === 'wartung' ? '✅' : '🔧'}</button>
                     <button class="btn-warning btn-small" onclick="editWerkzeug(${w.id})">✏️</button>
                     <button class="btn-danger btn-small" onclick="deleteWerkzeug(${w.id})">🗑️</button>
                 </td>

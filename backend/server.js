@@ -809,7 +809,7 @@ function enrichToolRow(row) {
 
   // Werkzeuge mit gesperrtem Status (defekt, reparatur, reinigung) gelten als nicht verfügbar,
   // unabhängig von der Stückzahl-Berechnung (relevant bei Einzelstück-Logik).
-  const GESPERRTE_STATI = new Set(['defekt', 'reparatur', 'reinigung']);
+  const GESPERRTE_STATI = new Set(['defekt', 'reparatur', 'reinigung', 'wartung']);
   if (GESPERRTE_STATI.has(row.status)) {
     inventory.verfuegbare_einheiten = 0;
   }
