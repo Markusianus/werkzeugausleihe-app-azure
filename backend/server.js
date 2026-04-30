@@ -24,7 +24,7 @@ const ADMIN_TOKEN_SECRET = String(process.env.ADMIN_TOKEN_SECRET || ADMIN_PASSWO
 const ADMIN_TOKEN_TTL_HOURS = Math.max(1, Number.parseInt(process.env.ADMIN_TOKEN_TTL_HOURS || '12', 10) || 12);
 const REQUEST_BODY_LIMIT = String(process.env.REQUEST_BODY_LIMIT || '2mb');
 const TRUST_PROXY = String(process.env.TRUST_PROXY || '1').trim().toLowerCase();
-const ALLOWED_TOOL_STATUSES = new Set(['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur', 'entsorgt']);
+const ALLOWED_TOOL_STATUSES = new Set(['verfuegbar', 'reserviert', 'ausgeliehen', 'defekt', 'reinigung', 'reparatur', 'wartung', 'entsorgt']);
 const ALLOWED_DAMAGE_STATUSES = new Set(['offen', 'behoben', 'nicht_behebbar']);
 const ALLOWED_BOOKING_STATUSES = new Set(['reserviert', 'ausgeliehen', 'zurueckgegeben']);
 const ALLOWED_RETURN_CONDITIONS = new Set(['gut', 'gebraucht', 'defekt', 'reinigung', 'reparatur']);
@@ -809,7 +809,7 @@ function enrichToolRow(row) {
 
   // Werkzeuge mit gesperrtem Status (defekt, reparatur, reinigung) gelten als nicht verfügbar,
   // unabhängig von der Stückzahl-Berechnung (relevant bei Einzelstück-Logik).
-  const GESPERRTE_STATI = new Set(['defekt', 'reparatur', 'reinigung']);
+  const GESPERRTE_STATI = new Set(['defekt', 'reparatur', 'reinigung', 'wartung']);
   if (GESPERRTE_STATI.has(row.status)) {
     inventory.verfuegbare_einheiten = 0;
   }
