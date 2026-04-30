@@ -1021,7 +1021,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                 <td>
                     <button class="btn-success btn-medium" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">🛠️ Wartungsdetails</button>
                     <button class="btn-medium ${w.status === 'wartung' ? 'btn-success' : 'btn-warning'}" onclick="toggleWartungStatus(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${w.status}')" title="${w.status === 'wartung' ? 'Wieder verfügbar setzen' : 'In Wartung setzen'}">${w.status === 'wartung' ? '✅ Verfügbar' : '🔧 In Wartung'}</button>
-                    <button class="btn-warning btn-medium" onclick="editWerkzeug(${w.id})">✏️ Bearbeiten</button>
+                    <button class="btn-edit btn-medium" onclick="editWerkzeug(${w.id})">✏️ Bearbeiten</button>
                     <button class="btn-danger btn-medium" onclick="deleteWerkzeug(${w.id})">🗑️</button>
                 </td>
             `;
