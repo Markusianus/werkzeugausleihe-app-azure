@@ -272,7 +272,7 @@ function getInventorySummaryHtml(w, { compact = false } = {}) {
 
 function buildWerkzeugDetailHtml(w) {
     const isZeitraumGefiltert = Boolean(verfuegbarkeitsFilter.von && verfuegbarkeitsFilter.bis);
-    const isGesperrt = ['defekt', 'reparatur', 'reinigung'].includes(w.status);
+    const isGesperrt = ['defekt', 'reparatur', 'reinigung', 'wartung'].includes(w.status);
     const isVerfuegbar = !isGesperrt && (isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0);
     return `
         ${(w.foto || w.has_foto) ? `<img src="${buildApiUrl('/werkzeuge/' + w.id + '/foto')}" alt="${escapeHtml(w.name)}" loading="lazy" style="max-width:100%;border-radius:12px;margin-bottom:16px;">` : ''}
@@ -377,7 +377,7 @@ async function loadWerkzeuge(filter = {}) {
             card.className = 'werkzeug-card';
 
             const isZeitraumGefiltert = Boolean(filter.von && filter.bis);
-            const isGesperrt = ['defekt', 'reparatur', 'reinigung'].includes(w.status);
+            const isGesperrt = ['defekt', 'reparatur', 'reinigung', 'wartung'].includes(w.status);
             const isVerfuegbar = !isGesperrt && (isZeitraumGefiltert || Number(w.verfuegbare_einheiten ?? 0) > 0);
             const statusBadge = getStatusBadge(w.status_abgeleitet || w.status);
             const maintenanceBadge = getWartungsStatusBadge(w);
@@ -477,7 +477,8 @@ function getStatusBadge(status) {
         'ausgeliehen': '<span class="status-badge status-ausgeliehen">📤 Ausgeliehen</span>',
         'defekt': '<span class="status-badge status-defekt">⚠️ Defekt</span>',
         'reinigung': '<span class="status-badge status-reinigung">🧹 In Reinigung</span>',
-        'reparatur': '<span class="status-badge status-reparatur">🔧 In Reparatur</span>'
+        'reparatur': '<span class="status-badge status-reparatur">🔧 In Reparatur</span>',
+        'wartung': '<span class="status-badge status-wartung">🔧 In Wartung</span>'
     };
 
     return badges[status] || escapeHtml(status);
@@ -1022,6 +1023,7 @@ async function loadAdminWerkzeuge(werkzeugeOverride = null) {
                     <button class="btn-secondary btn-small" onclick="exportSingleToolLabelPdf(${w.id})">PDF</button>
                     <button class="btn-success btn-small" onclick="showWartungDurchfuehren(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">🛠️</button>
                     <button class="btn-secondary btn-small" onclick="showWartungsverlauf(${w.id}, '${escapeForSingleQuotedJs(w.name)}')">📜</button>
+                    <button class="btn-small ${w.status === 'wartung' ? 'btn-success' : 'btn-warning'}" onclick="toggleWartungStatus(${w.id}, '${escapeForSingleQuotedJs(w.name)}', '${w.status_abgeleitet || w.status}')" title="${w.status === 'wartung' ? 'Wieder verfügbar setzen' : 'In Wartung setzen'}">${w.status === 'wartung' ? '✅' : '🔧'}</button>
                     <button class="btn-warning btn-small" onclick="editWerkzeug(${w.id})">✏️</button>
                     <button class="btn-danger btn-small" onclick="deleteWerkzeug(${w.id})">🗑️</button>
                 </td>
@@ -1152,6 +1154,21 @@ async function saveWerkzeug(event) {
         loadDashboard();
     } catch (err) {
         alert('Fehler: ' + err.message);
+    }
+}
+
+async function toggleWartungStatus(id, name, currentStatus) {
+    const newStatus = currentStatus === 'wartung' ? 'verfuegbar' : 'wartung';
+    try {
+        await apiCall(`/werkzeuge/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({ status: newStatus })
+        });
+        const label = newStatus === 'wartung' ? 'In Wartung gesetzt' : 'Wieder verfügbar';
+        showToast(`✓ ${escapeHtml(name)}: ${label}`);
+        loadAdminWerkzeuge();
+    } catch (err) {
+        showToast(`Fehler: ${err.message}`);
     }
 }
 
