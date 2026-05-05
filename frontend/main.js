@@ -1049,6 +1049,77 @@ function filterAdminWerkzeuge() {
     });
 }
 
+// ── Admin QR-Code-Scanner ──────────────────────────────────────────────────
+let _adminQrScanner = null;
+
+function openAdminQrScanner() {
+    const modal = document.getElementById('adminQrScannerModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    const errEl = document.getElementById('adminQrScannerError');
+    if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+    if (_adminQrScanner) {
+        _adminQrScanner.clear().catch(() => {});
+        _adminQrScanner = null;
+    }
+
+    const container = document.getElementById('adminQrScannerView');
+    if (!container) return;
+    container.innerHTML = '';
+
+    try {
+        _adminQrScanner = new Html5Qrcode('adminQrScannerView');
+        _adminQrScanner.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            (decodedText) => {
+                // QR-Codes können reine IDs sein (z. B. "42") oder URLs mit ?tool=<id>
+                let suchbegriff = decodedText.trim();
+                try {
+                    const url = new URL(decodedText);
+                    const toolId = url.searchParams.get('tool');
+                    if (toolId) suchbegriff = toolId;
+                } catch (_) { /* kein URL-Format → rohen Text verwenden */ }
+
+                closeAdminQrScanner();
+                const input = document.getElementById('adminWerkzeugSuche');
+                if (input) {
+                    input.value = suchbegriff;
+                    filterAdminWerkzeuge();
+                    input.focus();
+                }
+            },
+            () => { /* Scan-Fehler während des laufenden Scannens ignorieren */ }
+        ).catch(err => {
+            const errEl = document.getElementById('adminQrScannerError');
+            if (errEl) {
+                errEl.textContent = 'Kamera konnte nicht gestartet werden. Bitte Kamera-Freigabe prüfen.';
+                errEl.style.display = 'block';
+            }
+            console.error('QR-Scanner Fehler:', err);
+        });
+    } catch (err) {
+        const errEl = document.getElementById('adminQrScannerError');
+        if (errEl) {
+            errEl.textContent = 'QR-Scanner konnte nicht initialisiert werden.';
+            errEl.style.display = 'block';
+        }
+        console.error('QR-Scanner Init-Fehler:', err);
+    }
+}
+
+function closeAdminQrScanner() {
+    const modal = document.getElementById('adminQrScannerModal');
+    if (modal) modal.style.display = 'none';
+    if (_adminQrScanner) {
+        _adminQrScanner.stop().catch(() => {}).finally(() => {
+            _adminQrScanner.clear().catch(() => {});
+            _adminQrScanner = null;
+        });
+    }
+}
+
 function showAddWerkzeug() {
     document.getElementById('werkzeugForm').reset();
     document.getElementById('werkzeugId').value = '';

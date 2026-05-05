@@ -1091,7 +1091,20 @@
                                 </div>
                                 <div class="filter-bar" style="margin-bottom:8px;">
                                     <input type="text" id="adminWerkzeugSuche" placeholder="🔍 Werkzeug suchen …" oninput="filterAdminWerkzeuge()" style="flex:1;min-width:200px;">
+                                    <button class="btn-secondary btn-small" id="adminQrScanBtn" onclick="openAdminQrScanner()" title="QR-Code scannen">📷 QR scannen</button>
                                     <button class="btn-secondary btn-small" onclick="document.getElementById('adminWerkzeugSuche').value='';filterAdminWerkzeuge()">✕ Zurücksetzen</button>
+                                </div>
+                                <!-- QR-Scanner Modal -->
+                                <div id="adminQrScannerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;">
+                                    <div style="background:#fff;border-radius:12px;padding:24px;max-width:400px;width:90%;box-shadow:0 4px 32px rgba(0,0,0,0.3);">
+                                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                                            <h3 style="margin:0;">📷 QR-Code scannen</h3>
+                                            <button onclick="closeAdminQrScanner()" style="background:none;border:none;font-size:20px;cursor:pointer;padding:0 4px;">✕</button>
+                                        </div>
+                                        <p style="margin:0 0 12px;color:#555;font-size:14px;">Halte die Kamera auf den QR-Code des Werkzeugs.</p>
+                                        <div id="adminQrScannerView" style="width:100%;border-radius:8px;overflow:hidden;"></div>
+                                        <div id="adminQrScannerError" style="color:#c00;font-size:13px;margin-top:10px;display:none;"></div>
+                                    </div>
                                 </div>
                                 <div class="selection-toolbar">
                                     <div class="selection-summary" id="toolSelectionSummary">0 Werkzeuge für PDF-Etiketten ausgewählt</div>
@@ -1495,6 +1508,7 @@
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="main.js"></script>
 </body>
